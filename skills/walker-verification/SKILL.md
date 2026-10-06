@@ -73,6 +73,8 @@ cat "$report_path"
 
 Substitute the compiled CLI or local-tool invocation when necessary. Preserve the exit code from the verifier itself; do not pipe it through a command that hides that code. Read the JSON only after the process exits and source restoration finishes.
 
+For slow test projects, choose a relevant subset with `--filter "FullyQualifiedName~EpsDebitTests"` (or `"filter"` in `walker.json`; CLI overrides config). Both baseline and mutants use exactly that filter. Inspect `testFilter` in JSON and report the limited test scope. A filter matching no executed tests is `TestError`, never success.
+
 Check `schemaVersion` before relying on fields; this implementation uses version 1. Version 1 also contains the additive `hung` count, `Hung` outcome and `unresolvedArithmetic` count (arithmetic candidates whose operand types could not be resolved and were not mutated). Inspect `status`, `error`, `mutantsDiscovered`, `mutantsSelected`, `mutantsExecuted`, outcome counts, `survivors`, and `results`. Timings show discovery, baseline, build, test, and per-mutant cost. Selection is deterministic and bounded; candidates outside `--max-mutants` are not executed and are not counted as budget-skipped selected mutants.
 
 ## Interpret the result

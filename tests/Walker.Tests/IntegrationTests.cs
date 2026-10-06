@@ -49,22 +49,37 @@ public sealed class IntegrationTests
         await File.WriteAllBytesAsync(sourcePath, original);
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var cli = Path.Combine(repository.FullName, "src", "Walker.Cli", "bin", configuration, "net8.0", "Walker.Cli.dll");
-        async Task<ProcessResult> Verify() => await Run("dotnet", cli, "verify", "--project", "Payments/Payments.csproj",
-            "--tests", "Payments.Tests/Payments.Tests.csproj", "--max-mutants", "1", "--timeout", "120", "--format", "json");
+        workspace.Write("walker.json", "{\"filter\":\"FullyQualifiedName~PaymentTests\"}");
+        workspace.Write("Payments.Tests/UnrelatedTests.cs", "using Xunit; public class UnrelatedTests { [Fact] public void AlwaysFails() => Assert.True(false); }");
+        async Task<ProcessResult> Verify(string? filter = null) => await Run("dotnet", [cli, "verify", "--project", "Payments/Payments.csproj",
+            "--tests", "Payments.Tests/Payments.Tests.csproj", "--max-mutants", "1", "--timeout", "120", "--format", "json", ..(filter == null ? Array.Empty<string>() : new[] { "--filter", filter })]);
         var weak = await Verify();
         Assert.True(weak.ExitCode == 1, weak.StandardOutput + weak.StandardError);
         using (var report = JsonDocument.Parse(weak.StandardOutput))
         {
             Assert.Equal(1, report.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("FullyQualifiedName~PaymentTests", report.RootElement.GetProperty("testFilter").GetString());
             Assert.Equal("failed", report.RootElement.GetProperty("status").GetString());
             Assert.Equal(1, report.RootElement.GetProperty("survived").GetInt32());
             Assert.Equal("balance > price", report.RootElement.GetProperty("survivors")[0].GetProperty("replacement").GetString());
         }
         Assert.Equal(original, File.ReadAllBytes(sourcePath));
         workspace.Write("Payments.Tests/BoundaryTests.cs", "using Xunit; namespace Payments.Tests; public class BoundaryTests { [Fact] public void EqualityCanPurchase() => Assert.True(new " + (transitiveReference ? "PaymentFacade" : "PaymentService") + "().CanPurchase(10, 10)); }");
-        var strong = await Verify();
+        var strong = await Verify("FullyQualifiedName~PaymentTests|FullyQualifiedName~BoundaryTests");
         Assert.True(strong.ExitCode == 0, strong.StandardOutput + strong.StandardError);
-        using (var report = JsonDocument.Parse(strong.StandardOutput)) Assert.Equal(1, report.RootElement.GetProperty("killed").GetInt32());
+        using (var report = JsonDocument.Parse(strong.StandardOutput))
+        {
+            Assert.Equal(1, report.RootElement.GetProperty("killed").GetInt32());
+            Assert.Equal("FullyQualifiedName~PaymentTests|FullyQualifiedName~BoundaryTests", report.RootElement.GetProperty("testFilter").GetString());
+        }
+        if (!transitiveReference)
+        {
+            var empty = await Verify("FullyQualifiedName~DoesNotExist");
+            Assert.True(empty.ExitCode == 2, empty.StandardOutput + empty.StandardError);
+            using var report = JsonDocument.Parse(empty.StandardOutput);
+            Assert.Equal(0, report.RootElement.GetProperty("mutantsExecuted").GetInt32());
+            Assert.Contains("No executed tests", report.RootElement.GetProperty("error").GetString());
+        }
         Assert.Equal(original, File.ReadAllBytes(sourcePath));
     }
 }

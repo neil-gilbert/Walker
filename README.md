@@ -80,6 +80,7 @@ dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll verify \
   --timeout 60 --max-mutants 20 --format json
 ```
 
+- Use `--filter "FullyQualifiedName~EpsDebitTests"` to run a focused subset of a slow suite. The same filter applies to the baseline and every mutant; a filter matching no executed tests is an error. JSON echoes the effective scope as `testFilter` (schema version 1). CLI `--filter` overrides the optional `"filter"` in `walker.json`.
 - Repeat `--tests` to defend more than one test project.
 - `--format text` gives the short field report; `--verbose` adds timings.
 - JSON always includes timings and uses `schemaVersion: 1`.
@@ -142,6 +143,7 @@ Put an optional `walker.json` in the current directory:
   "base": "origin/main",
   "project": "src/Payments/Payments.csproj",
   "tests": ["tests/Payments.Tests/Payments.Tests.csproj"],
+  "filter": "FullyQualifiedName~PaymentTests",
   "maxMutants": 20,
   "timeoutSeconds": 60,
   "exclude": ["**/*.Designer.cs", "**/Generated/**"]

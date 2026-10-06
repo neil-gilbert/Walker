@@ -15,7 +15,8 @@ try
     if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
     {
         Console.WriteLine("walker verify [--base HEAD~1] --project <csproj> --tests <csproj> [--tests <csproj> ...]\n" +
-            "  [--max-mutants 20] [--timeout 60] [--format text|json] [--exclude <glob>] [--verbose]\n" +
+            "  [--max-mutants 20] [--timeout 60] [--format text|json] [--exclude <glob>] [--filter <expression>] [--verbose]\n" +
+            "  --filter applies the same dotnet test filter to the baseline and all mutants; zero tests is an error.\n" +
             "Reads walker.json in the current directory; CLI options override configuration.\n" +
             "Exit codes: 0 passed, 1 survivors, 2 infrastructure error, 3 incomplete.\n" +
             "No eligible mutations yields incomplete. Surviving mutants require investigation, not automatic production changes.");
@@ -35,6 +36,7 @@ try
         var value = args[i];
         switch (option)
         {
+            case "--filter": config.Filter = value; break;
             case "--base": config.Base = value; break;
             case "--project": config.Project = value; break;
             case "--tests": tests.Add(value); break;
@@ -61,7 +63,7 @@ try
     // Repair a source file left mutated by a previously killed run before discovery reads it.
     if (await MutationJournal.RecoverAsync(root, CancellationToken.None) is { } recovered) Console.Error.WriteLine(recovered);
     var request = new VerificationRequest(root, config.Base ?? "HEAD~1", Path.GetFullPath(config.Project, cwd),
-        tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude);
+        tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude, config.Filter);
     using var cancelled = new CancellationTokenSource();
     ConsoleCancelEventHandler handler = (_, e) => { e.Cancel = true; cancelled.Cancel(); };
     Console.CancelKeyPress += handler;
@@ -92,6 +94,7 @@ sealed class Configuration
     public string[]? Tests { get; set; }
     public string[]? Exclude { get; set; }
     public string? Format { get; set; }
+    public string? Filter { get; set; }
     public int MaxMutants { get; set; } = 20;
     public int TimeoutSeconds { get; set; } = 60;
 }

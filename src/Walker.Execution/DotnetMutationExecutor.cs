@@ -22,7 +22,7 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
         var build = await Build(request.Project, request.Root, cancellationToken, observe: true);
         if (build.ExitCode != 0) throw new InvalidOperationException("Baseline production build failed: " + Diagnostic(build));
         buildCoverage = new(request.Root, request.Project, build.OutputTruncated ? "" : build.StandardOutput);
-        var tests = await RunTests(new(request.Tests), request.Root, cancellationToken);
+        var tests = await RunTests(new(request.Tests, request.Filter), request.Root, cancellationToken);
         if (tests.Outcome != MutationOutcome.Survived) throw new InvalidOperationException("Baseline tests failed or could not run: " + tests.Detail);
         baselineTestMs = tests.BuildMs + tests.TestMs;
         baselinePassed = true;

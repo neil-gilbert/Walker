@@ -15,13 +15,13 @@ public record Mutant(string Id, string File, int Line, string Member, MutationOp
 public record MutationResult(Mutant Mutant, MutationOutcome Outcome, long DurationMs = 0,
     long BuildMs = 0, long TestMs = 0, string? Detail = null, SurvivorClassification? Classification = null);
 public record VerificationRequest(string Root, string Base, string Project, IReadOnlyList<string> Tests,
-    int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null);
+    int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null, string? Filter = null);
 public record TestSelection(IReadOnlyList<string> Projects, string? Filter = null);
 public record VerificationContext(VerificationRequest Request, ITestSelector TestSelector);
 public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0);
 public record PhaseTimings(long GitMs = 0, long ParsingMs = 0, long DiscoveryMs = 0, long BaselineMs = 0);
 public record VerificationResult(string Status, string Base, int ChangedFiles, int MutantsDiscovered,
-    int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0)
+    int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0, string? TestFilter = null)
 {
     public int SchemaVersion => 1;
     public int MutantsExecuted => Results.Count(r => r.Outcome != MutationOutcome.Skipped);
@@ -47,9 +47,9 @@ public interface IMutationExecutor
     Task<MutationResult> ExecuteAsync(Mutant mutant, VerificationContext context, CancellationToken cancellationToken);
 }
 public interface IBaselineVerifier { Task VerifyAsync(VerificationRequest request, CancellationToken cancellationToken); }
-public sealed class AllTestsSelector(IReadOnlyList<string> projects) : ITestSelector
+public sealed class AllTestsSelector(IReadOnlyList<string> projects, string? filter = null) : ITestSelector
 {
-    public Task<TestSelection> SelectTestsAsync(Mutant mutant, CancellationToken cancellationToken) => Task.FromResult(new TestSelection(projects));
+    public Task<TestSelection> SelectTestsAsync(Mutant mutant, CancellationToken cancellationToken) => Task.FromResult(new TestSelection(projects, filter));
 }
 
 public interface IProductionSourceScope { Task<IReadOnlySet<string>> GetFilesAsync(VerificationRequest request, CancellationToken cancellationToken); }

@@ -31,7 +31,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                 phase.Restart();
                 await baseline.VerifyAsync(request, token);
                 timings = timings with { BaselineMs = phase.ElapsedMilliseconds };
-                var context = new VerificationContext(request, new AllTestsSelector(request.Tests));
+                var context = new VerificationContext(request, new AllTestsSelector(request.Tests, request.Filter));
                 foreach (var mutant in selected)
                 {
                     token.ThrowIfCancellationRequested();
@@ -55,7 +55,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             error ??= "Verification budget exhausted or cancelled; available results are incomplete.";
         if (selected.Length == 0 && error == null && !token.IsCancellationRequested)
             error = "No eligible changed expressions; verification provides no mutation evidence.";
-        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved);
+        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter);
     }
     // Priority order, then round-robin across (file, operator) groups so one dense file or
     // operator cannot consume the whole budget.
