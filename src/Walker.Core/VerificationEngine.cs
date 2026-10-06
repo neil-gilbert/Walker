@@ -19,6 +19,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
         var baselineStarted = false;
         var baselineCompleted = false;
         var unresolved = 0;
+        var unresolvedBoolean = 0;
         try
         {
             var phase = Stopwatch.StartNew();
@@ -27,6 +28,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             var found = await discovery.DiscoverAsync(request.Root, files, token);
             mutants = found.Mutants;
             unresolved = found.UnresolvedArithmetic;
+            unresolvedBoolean = found.UnresolvedBoolean;
             timings = timings with { ParsingMs = found.ParsingMs, DiscoveryMs = found.DiscoveryMs };
             selected = Select(mutants, request.MaxMutants);
             if (selected.Length > 0)
@@ -71,7 +73,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             error ??= "Verification budget exhausted or cancelled; available results are incomplete.";
         if (selected.Length == 0 && error == null && !token.IsCancellationRequested)
             error = "No eligible changed expressions; verification provides no mutation evidence.";
-        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter);
+        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter, unresolvedBoolean);
     }
     // Priority order, then round-robin across (file, operator) groups so one dense file or
     // operator cannot consume the whole budget.

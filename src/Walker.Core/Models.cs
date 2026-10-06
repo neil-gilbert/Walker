@@ -18,10 +18,10 @@ public record VerificationRequest(string Root, string Base, string Project, IRea
     int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null, string? Filter = null);
 public record TestSelection(IReadOnlyList<string> Projects, string? Filter = null);
 public record VerificationContext(VerificationRequest Request, ITestSelector TestSelector);
-public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0);
+public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0, int UnresolvedBoolean = 0);
 public record PhaseTimings(long GitMs = 0, long ParsingMs = 0, long DiscoveryMs = 0, long BaselineMs = 0);
 public record VerificationResult(string Status, string Base, int ChangedFiles, int MutantsDiscovered,
-    int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0, string? TestFilter = null)
+    int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0, string? TestFilter = null, int UnresolvedBoolean = 0)
 {
     public int SchemaVersion => 1;
     public int MutantsExecuted => Results.Count(r => r.Outcome != MutationOutcome.Skipped);

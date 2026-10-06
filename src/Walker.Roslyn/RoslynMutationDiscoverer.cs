@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Walker.Core;
 namespace Walker.Roslyn;
-// contextSources: the production project's Compile items, used only when arithmetic needs operand types.
+// contextSources: production Compile items, loaded lazily for arithmetic or boolean return types.
 public sealed class RoslynMutationDiscoverer(Func<CancellationToken, Task<IEnumerable<string>>>? contextSources = null) : IMutationDiscoverer
 {
     private static readonly Lazy<MetadataReference[]> References = new(() => ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
@@ -17,9 +17,8 @@ public sealed class RoslynMutationDiscoverer(Func<CancellationToken, Task<IEnume
     public async Task<DiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceChange> changes, CancellationToken cancellationToken)
     {
         var result = new List<(int Order, Walker.Core.Mutant Mutant)>();
-        // Arithmetic needs type information. Defer it so one compilation serves every changed file,
-        // and nothing is loaded unless a changed arithmetic expression exists.
-        var pending = new List<(int Order, SyntaxTree Tree, BinaryExpressionSyntax Node, Func<Walker.Core.Mutant> Create)>();
+        // Share one lazy compilation for candidates that require semantic type information.
+        var pending = new List<(int Order, SyntaxTree Tree, ExpressionSyntax Node, bool Boolean, Func<Walker.Core.Mutant> Create)>();
         var trees = new List<SyntaxTree>();
         long parsing = 0, discovery = 0;
         for (var order = 0; order < changes.Count; order++)
@@ -38,23 +37,19 @@ public sealed class RoslynMutationDiscoverer(Func<CancellationToken, Task<IEnume
             foreach (var node in syntax.DescendantNodes(n => Intersects(regions, n.FullSpan)).OfType<ExpressionSyntax>())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (node is not (BinaryExpressionSyntax or LiteralExpressionSyntax or IsPatternExpressionSyntax)
-                    || !Intersects(regions, node.Span)) continue;
+                if (!Intersects(regions, node.Span)) continue;
                 var line = tree.GetLineSpan(node.Span).StartLinePosition.Line + 1;
                 var member = node.Ancestors().FirstOrDefault(n => n is BaseMethodDeclarationSyntax or PropertyDeclarationSyntax or LocalFunctionStatementSyntax);
                 if (member == null) continue;
-                (MutationOperator Op, string Replacement)? mutation = node switch
+                var mutation = Primitive(node);
+                var semanticBoolean = false;
+                if (mutation == null && BooleanTarget(node)
+                    && !BindsVariables(node))
                 {
-                    BinaryExpressionSyntax b => Binary(b),
-                    LiteralExpressionSyntax l when l.IsKind(SyntaxKind.TrueLiteralExpression) => (ReturnOrBoolean(l), "false"),
-                    LiteralExpressionSyntax l when l.IsKind(SyntaxKind.FalseLiteralExpression) => (ReturnOrBoolean(l), "true"),
-                    IsPatternExpressionSyntax p when p.Pattern is ConstantPatternSyntax c && c.Expression.IsKind(SyntaxKind.NullLiteralExpression)
-                        => (MutationOperator.NullHandling, p.Expression + " is not null"),
-                    IsPatternExpressionSyntax p when p.Pattern is UnaryPatternSyntax u && u.IsKind(SyntaxKind.NotPattern)
-                        && u.Pattern is ConstantPatternSyntax c && c.Expression.IsKind(SyntaxKind.NullLiteralExpression)
-                        => (MutationOperator.NullHandling, p.Expression + " is null"),
-                    _ => null
-                };
+                    mutation = (MutationOperator.BooleanLogic, "!(" + node + ")");
+                    // Condition positions already require bool. Return/arrow bodies need semantic proof.
+                    semanticBoolean = node.Parent is ReturnStatementSyntax or ArrowExpressionClauseSyntax;
+                }
                 if (mutation == null) continue;
                 var original = node.ToString();
                 var name = string.Join(".", node.Ancestors().OfType<TypeDeclarationSyntax>().Reverse().Select(t => t.Identifier.Text)
@@ -66,30 +61,63 @@ public sealed class RoslynMutationDiscoverer(Func<CancellationToken, Task<IEnume
                     var id = Walker.Core.Mutant.Hash($"{change.File}|{name}|{node.SpanStart}|{op}|{original}|{replacement}")[..20];
                     return new(id, change.File, line, name, op, original, replacement, node.SpanStart, node.Span.Length, sourceHash ??= Walker.Core.Mutant.Hash(source));
                 }
-                if (op == MutationOperator.Arithmetic) pending.Add((order, tree, (BinaryExpressionSyntax)node, Create));
+                if (op == MutationOperator.Arithmetic || semanticBoolean) pending.Add((order, tree, node, semanticBoolean, Create));
                 else result.Add((order, Create()));
             }
             discovery += timer.ElapsedMilliseconds;
         }
         var unresolved = 0;
+        var unresolvedBoolean = 0;
         if (pending.Count > 0)
         {
             var timer = Stopwatch.StartNew();
             var compilation = await CreateCompilationAsync(root, trees, cancellationToken);
             var models = new Dictionary<SyntaxTree, SemanticModel>();
-            foreach (var (order, tree, node, create) in pending)
+            foreach (var (order, tree, node, boolean, create) in pending)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!models.TryGetValue(tree, out var model)) models[tree] = model = compilation.GetSemanticModel(tree);
-                // Only mutate arithmetic with known built-in numeric operands; skip strings and unknown overloads.
-                var left = model.GetTypeInfo(node.Left, cancellationToken).Type;
-                var right = model.GetTypeInfo(node.Right, cancellationToken).Type;
-                if (Numeric(left) && Numeric(right)) result.Add((order, create()));
-                else if (Unknown(left) || Unknown(right)) unresolved++;
+                if (boolean)
+                {
+                    var type = model.GetTypeInfo(node, cancellationToken).Type;
+                    if (type?.SpecialType == SpecialType.System_Boolean) result.Add((order, create()));
+                    else if (Unknown(type)) unresolvedBoolean++;
+                }
+                else
+                {
+                    // Only mutate arithmetic with known built-in numeric operands; skip strings and unknown overloads.
+                    var binary = (BinaryExpressionSyntax)node;
+                    var left = model.GetTypeInfo(binary.Left, cancellationToken).Type;
+                    var right = model.GetTypeInfo(binary.Right, cancellationToken).Type;
+                    if (Numeric(left) && Numeric(right)) result.Add((order, create()));
+                    else if (Unknown(left) || Unknown(right)) unresolved++;
+                }
             }
             discovery += timer.ElapsedMilliseconds;
         }
-        return new(result.OrderBy(r => r.Order).ThenBy(r => r.Mutant.SpanStart).Select(r => r.Mutant).ToList(), parsing, discovery, unresolved);
+        // Prefer the highest-priority operator on overlapping spans, then the smallest expression.
+        // This preserves boundary/equality mutations instead of broadly negating their conditions.
+        var retentionTimer = Stopwatch.StartNew();
+        var retained = new List<(int Order, Walker.Core.Mutant Mutant)>();
+        var spansByFile = new Dictionary<string, SortedSet<(int Start, int End)>>(StringComparer.Ordinal);
+        foreach (var candidate in result.OrderBy(r => r.Mutant.Replacement.StartsWith("!(", StringComparison.Ordinal) ? 1 : 0)
+            .ThenBy(r => r.Mutant.Operator).ThenBy(r => r.Mutant.SpanLength)
+            .ThenBy(r => r.Order).ThenBy(r => r.Mutant.SpanStart))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var mutant = candidate.Mutant;
+            if (!spansByFile.TryGetValue(mutant.File, out var spans)) spansByFile[mutant.File] = spans = new();
+            var start = mutant.SpanStart;
+            var end = start + mutant.SpanLength;
+            var before = spans.GetViewBetween((0, 0), (start, int.MaxValue));
+            var after = spans.GetViewBetween((start, 0), (int.MaxValue, int.MaxValue));
+            if (before.Max.End > start || (after.Min.End > 0 && after.Min.Start < end)) continue;
+            spans.Add((start, end));
+            retained.Add(candidate);
+        }
+        discovery += retentionTimer.ElapsedMilliseconds;
+        return new(retained.OrderBy(r => r.Order).ThenBy(r => r.Mutant.SpanStart).Select(r => r.Mutant).ToList(),
+            parsing, discovery, unresolved, unresolvedBoolean);
     }
     private async Task<CSharpCompilation> CreateCompilationAsync(string root, IReadOnlyList<SyntaxTree> changed, CancellationToken cancellationToken)
     {
@@ -130,10 +158,37 @@ public sealed class RoslynMutationDiscoverer(Func<CancellationToken, Task<IEnume
         }
         return false;
     }
+    private static bool BooleanTarget(ExpressionSyntax node) => node.Parent switch
+    {
+        IfStatementSyntax statement => statement.Condition == node,
+        WhileStatementSyntax statement => statement.Condition == node,
+        ConditionalExpressionSyntax expression => expression.Condition == node,
+        ReturnStatementSyntax or ArrowExpressionClauseSyntax => true,
+        _ => false
+    };
+    // Negation makes bound pattern/out variables unavailable on the original true branch.
+    // Conservatively omit it even if the variable is not subsequently read.
+    private static bool BindsVariables(SyntaxNode node) => node.DescendantNodesAndSelf().OfType<SingleVariableDesignationSyntax>().Any();
+    private static (MutationOperator Op, string Replacement)? Primitive(ExpressionSyntax node) => node switch
+    {
+        BinaryExpressionSyntax binary => Binary(binary),
+        LiteralExpressionSyntax literal when literal.IsKind(SyntaxKind.TrueLiteralExpression) => (ReturnOrBoolean(literal), "false"),
+        LiteralExpressionSyntax literal when literal.IsKind(SyntaxKind.FalseLiteralExpression) => (ReturnOrBoolean(literal), "true"),
+        IsPatternExpressionSyntax pattern when pattern.Pattern is ConstantPatternSyntax constant && constant.Expression.IsKind(SyntaxKind.NullLiteralExpression)
+            => (MutationOperator.NullHandling, pattern.Expression + " is not null"),
+        IsPatternExpressionSyntax pattern when pattern.Pattern is UnaryPatternSyntax unary && unary.IsKind(SyntaxKind.NotPattern)
+            && unary.Pattern is ConstantPatternSyntax constant && constant.Expression.IsKind(SyntaxKind.NullLiteralExpression)
+            => (MutationOperator.NullHandling, pattern.Expression + " is null"),
+        IsPatternExpressionSyntax pattern when !BindsVariables(pattern)
+            => (MutationOperator.BooleanLogic, pattern.Expression + " is not (" + pattern.Pattern + ")"),
+        _ => null
+    };
     private static MutationOperator ReturnOrBoolean(SyntaxNode node) => node.Parent is ReturnStatementSyntax or ArrowExpressionClauseSyntax
         ? MutationOperator.ReturnValue : MutationOperator.BooleanLogic;
     private static (MutationOperator, string)? Binary(BinaryExpressionSyntax node)
     {
+        if (node.IsKind(SyntaxKind.IsExpression))
+            return (MutationOperator.BooleanLogic, node.Left + " is not (" + node.Right + ")");
         var op = node.OperatorToken.Text;
         string? replacement = op switch { ">" => ">=", ">=" => ">", "<" => "<=", "<=" => "<", "==" => "!=", "!=" => "==",
             "&&" => "||", "||" => "&&", "+" => "-", "-" => "+", "*" => "/", _ => null };

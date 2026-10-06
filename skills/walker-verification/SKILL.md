@@ -122,7 +122,7 @@ Execution modifies one working-copy source file at a time, then restores its exa
 
 Normal process errors, test failures, cancellation, and budget expiry must restore source. Forced process termination, host failure, and concurrent external edits cannot be made safe by `finally`; prefer graceful cancellation. If interrupted abnormally, inspect the diff and recover from your recorded working-copy content. Never discard user edits with `git checkout`, `git restore`, or a reset.
 
-V1 runs configured test projects for each selected mutant until a project confirms a test failure; survivors must pass all configured projects. The baseline validates all projects before mutation. It has no coverage-based test selection, equivalent-mutant detection, invocation removal, or numeric-constant return mutation. Arithmetic mutation is conservative when operand types cannot be resolved. Do not interpret an omitted mutation as evidence that tests cover it.
+V1 runs configured test projects for each selected mutant until a project confirms a test failure; survivors must pass all configured projects. The baseline validates all projects before mutation. It has no coverage-based test selection, equivalent-mutant detection, invocation removal, or numeric-constant return mutation. Conditions and resolved boolean return expressions can be negated; non-null patterns are negated only without variable bindings. Overlapping spans prefer high-value operator mutations over broad condition negation. Inspect `unresolvedBoolean` as well as `unresolvedArithmetic`; omitted or unresolved shapes are evidence gaps. Arithmetic mutation is conservative when operand types cannot be resolved. Do not interpret an omitted mutation as evidence that tests cover it.
 
 ## Report back
 

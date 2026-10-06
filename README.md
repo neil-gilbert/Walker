@@ -186,6 +186,8 @@ Errors take precedence over incomplete execution; incomplete takes precedence ov
 ### Raising the horde (Roslyn discovery)
 
 - Mutates boundary, equality, boolean, logical, null-pattern and numeric arithmetic expressions, plus boolean constant returns, **only** where they intersect changed lines.
+- Changed `if`/`while` and ternary conditions can be negated (`cond` → `!(cond)`). Boolean expression bodies and return expressions (including calls such as `string.Equals`) are negated only when Roslyn resolves their type to `bool`; unresolved expressions are counted in `unresolvedBoolean`. Non-null patterns are negated only when they bind no variables.
+- Overlapping candidates keep the highest-priority operator, then the smallest expression. A condition already covered by an operator mutation does not also get broad negation. Pattern/out-variable bindings are conservatively skipped for negation to preserve definite assignment.
 - Arithmetic needs known numeric operand types. All changed files share one compilation together with the project's other Compile items and the SDK implicit usings. Operands that still cannot be resolved (for example package types) are skipped and counted in `unresolvedArithmetic`.
 - Invocation removal, numeric return constants, coverage-based selection and equivalent-mutant detection are not implemented yet.
 - Unusual operator overloads or project context can still produce a compile error. Such results never pass verification.

@@ -18,6 +18,8 @@ public static class TextReportWriter
             writer.WriteLine($"{result.CompileErrors + result.TestErrors} errored, {result.TimedOut} timed out, {result.Skipped} skipped");
         if (result.UnresolvedArithmetic > 0)
             writer.WriteLine($"{result.UnresolvedArithmetic} arithmetic {(result.UnresolvedArithmetic == 1 ? "candidate" : "candidates")} not mutated: operand types could not be resolved");
+        if (result.UnresolvedBoolean > 0)
+            writer.WriteLine($"{result.UnresolvedBoolean} boolean return candidates not mutated: expression types could not be resolved");
         writer.WriteLine(result.Status switch
         {
             "passed" => "SAFE — nothing is still walking.",
