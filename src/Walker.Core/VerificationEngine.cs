@@ -73,7 +73,30 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             error ??= "Verification budget exhausted or cancelled; available results are incomplete.";
         if (selected.Length == 0 && error == null && !token.IsCancellationRequested)
             error = "No eligible changed expressions; verification provides no mutation evidence.";
-        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter, unresolvedBoolean);
+        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter, unresolvedBoolean)
+        {
+            Files = SummarizeFiles(files, mutants, selected)
+        };
+    }
+    private static FileVerificationSummary[] SummarizeFiles(IReadOnlyList<SourceChange> changes,
+        IReadOnlyList<Mutant> mutants, IReadOnlyList<Mutant> selected)
+    {
+        var discoveredCounts = mutants.GroupBy(m => m.File).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var selectedCounts = selected.GroupBy(m => m.File).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        return changes.GroupBy(c => c.File).OrderBy(g => g.Key, StringComparer.Ordinal).Select(group =>
+        {
+            // Count the union of line ranges without allocating one element for every changed line.
+            var changedLines = 0;
+            var lastEnd = 0;
+            foreach (var range in group.SelectMany(c => c.Lines).OrderBy(r => r.Start))
+            {
+                var start = Math.Max(1, Math.Max(range.Start, lastEnd + 1));
+                if (range.End >= start) changedLines += range.End - start + 1;
+                lastEnd = Math.Max(lastEnd, range.End);
+            }
+            return new FileVerificationSummary(group.Key, changedLines,
+                discoveredCounts.GetValueOrDefault(group.Key), selectedCounts.GetValueOrDefault(group.Key));
+        }).ToArray();
     }
     // Priority order, then round-robin across (file, operator) groups so one dense file or
     // operator cannot consume the whole budget.

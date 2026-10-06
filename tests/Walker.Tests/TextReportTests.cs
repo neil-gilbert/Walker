@@ -62,6 +62,17 @@ public sealed class TextReportTests
         Assert.False(root.TryGetProperty("horde", out _));
         Assert.DoesNotContain("IT'S STILL WALKING", json);
     }
+    [Fact]
+    public void TextNamesChangedFilesWithNoCandidatesEvenInPassingRun()
+    {
+        var result = Result("passed", MutationOutcome.Killed) with
+        {
+            Files = [new("Empty.cs", 5, 0, 0), new("Covered.cs", 1, 1, 1)]
+        };
+        var text = Render(result);
+        Assert.Contains("No mutation candidates: Empty.cs (5 changed lines; no mutation evidence for this file)", text);
+        Assert.DoesNotContain("No mutation candidates: Covered.cs", text);
+    }
     private static VerificationResult Result(string status, MutationOutcome outcome) =>
         new(status, "HEAD~1", 1, 1, 1, [new(DiscoveryTests.Dummy("abc123"), outcome)], 4800, new());
     private static string Render(VerificationResult result)

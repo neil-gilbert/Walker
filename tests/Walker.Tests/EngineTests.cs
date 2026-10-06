@@ -98,6 +98,33 @@ public sealed class EngineTests
     {
         public Task VerifyAsync(VerificationRequest request, CancellationToken token) => run(token);
     }
+    [Fact]
+    public async Task PerFileSummaryIncludesZeroCandidatesAndCountsUniqueChangedLines()
+    {
+        var candidates = new[] { DiscoveryTests.Dummy("a") with { File = "A.cs" }, DiscoveryTests.Dummy("b") with { File = "B.cs" } };
+        var fake = new FakeEngine(candidates, m => new(m, MutationOutcome.Killed));
+        var result = await new VerificationEngine(new FileChanges(), fake, fake, fake)
+            .VerifyAsync(Request() with { MaxMutants = 1 });
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(new[] {
+            new FileVerificationSummary("A.cs", 4, 1, 1),
+            new FileVerificationSummary("B.cs", 1, 1, 0),
+            new FileVerificationSummary("Empty.cs", 2, 0, 0)
+        }, result.Files);
+        var json = System.Text.Json.JsonSerializer.Serialize(result,
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        using var report = System.Text.Json.JsonDocument.Parse(json);
+        var file = report.RootElement.GetProperty("files")[2];
+        Assert.Equal("Empty.cs", file.GetProperty("file").GetString());
+        Assert.Equal(0, file.GetProperty("mutantsDiscovered").GetInt32());
+    }
+    private sealed class FileChanges : IChangeProvider
+    {
+        public Task<IReadOnlyList<SourceChange>> GetChangesAsync(VerificationRequest request, CancellationToken token) =>
+            Task.FromResult<IReadOnlyList<SourceChange>>([
+                new("Empty.cs", [new(4, 5)], false), new("B.cs", [new(1, 1)], false),
+                new("A.cs", [new(1, 3), new(2, 4)], true)]);
+    }
     private static VerificationRequest Request() => new("root", "HEAD~1", "project", ["tests"]);
 }
 internal sealed class FakeEngine(IReadOnlyList<Walker.Core.Mutant> mutants, Func<Walker.Core.Mutant, MutationResult> execute,

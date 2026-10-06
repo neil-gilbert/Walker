@@ -19,10 +19,12 @@ public record VerificationRequest(string Root, string Base, string Project, IRea
 public record TestSelection(IReadOnlyList<string> Projects, string? Filter = null);
 public record VerificationContext(VerificationRequest Request, ITestSelector TestSelector);
 public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0, int UnresolvedBoolean = 0);
+public record FileVerificationSummary(string File, int ChangedLines, int MutantsDiscovered, int MutantsSelected);
 public record PhaseTimings(long GitMs = 0, long ParsingMs = 0, long DiscoveryMs = 0, long BaselineMs = 0);
 public record VerificationResult(string Status, string Base, int ChangedFiles, int MutantsDiscovered,
     int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0, string? TestFilter = null, int UnresolvedBoolean = 0)
 {
+    public IReadOnlyList<FileVerificationSummary> Files { get; init; } = [];
     public int SchemaVersion => 1;
     public int MutantsExecuted => Results.Count(r => r.Outcome != MutationOutcome.Skipped);
     public int Killed => Results.Count(r => r.Outcome == MutationOutcome.Killed);

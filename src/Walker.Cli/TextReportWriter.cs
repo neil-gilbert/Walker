@@ -8,6 +8,8 @@ public static class TextReportWriter
     public static void Write(VerificationResult result, TextWriter writer, bool verbose = false)
     {
         writer.WriteLine("WALKER");
+        foreach (var file in result.Files.Where(f => f.MutantsDiscovered == 0))
+            writer.WriteLine($"No mutation candidates: {file.File} ({file.ChangedLines} changed lines; no mutation evidence for this file)");
         writer.WriteLine($"Horde: {result.MutantsDiscovered} mutation candidates");
         writer.WriteLine($"{result.MutantsSelected} selected for verification");
         writer.WriteLine($"{result.MutantsExecuted}/{result.MutantsSelected} executed");

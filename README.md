@@ -83,6 +83,7 @@ dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll verify \
 - Use `--filter "FullyQualifiedName~EpsDebitTests"` to run a focused subset of a slow suite. The same filter applies to the baseline and every mutant; a filter matching no executed tests is an error. JSON echoes the effective scope as `testFilter` (schema version 1). CLI `--filter` overrides the optional `"filter"` in `walker.json`.
 - Repeat `--tests` to defend more than one test project.
 - `--format text` gives the short field report; `--verbose` adds timings.
+- JSON includes a `files` array with each changed production file, its unique changed-line count, and discovered/selected mutant counts. Text reports name files with no candidates. A passing run provides evidence only for selected expressions; files with zero candidates remain unverified.
 - JSON always includes timings and uses `schemaVersion: 1`.
 
 ### What a bad day looks like
