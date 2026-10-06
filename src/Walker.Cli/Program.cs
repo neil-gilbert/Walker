@@ -15,8 +15,9 @@ try
     if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
     {
         Console.WriteLine("walker verify [--base HEAD~1] --project <csproj> --tests <csproj> [--tests <csproj> ...]\n" +
-            "  [--max-mutants 20] [--timeout 60] [--format text|json] [--exclude <glob>] [--filter <expression>] [--verbose]\n" +
+            "  [--max-mutants 20] [--timeout 60] [--format text|json] [--exclude <glob>] [--filter <expression>] [--confirm-kills] [--verbose]\n" +
             "  --filter applies the same dotnet test filter to the baseline and all mutants; zero tests is an error.\n" +
+            "  --confirm-kills reruns failing test methods on restored source; adds builds/test runs and uses the same budget.\n" +
             "Reads walker.json in the current directory; CLI options override configuration.\n" +
             "Exit codes: 0 passed, 1 survivors, 2 infrastructure error, 3 incomplete.\n" +
             "No eligible mutations yields incomplete. Surviving mutants require investigation, not automatic production changes.");
@@ -31,6 +32,7 @@ try
     for (var i = 1; i < args.Length; i++)
     {
         var option = args[i];
+        if (option == "--confirm-kills") { config.ConfirmKills = true; continue; }
         if (option == "--verbose") { verbose = true; continue; }
         if (++i >= args.Length) throw new ArgumentException("Missing value for " + option);
         var value = args[i];
@@ -63,7 +65,7 @@ try
     // Repair a source file left mutated by a previously killed run before discovery reads it.
     if (await MutationJournal.RecoverAsync(root, CancellationToken.None) is { } recovered) Console.Error.WriteLine(recovered);
     var request = new VerificationRequest(root, config.Base ?? "HEAD~1", Path.GetFullPath(config.Project, cwd),
-        tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude, config.Filter);
+        tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude, config.Filter, config.ConfirmKills);
     using var cancelled = new CancellationTokenSource();
     ConsoleCancelEventHandler handler = (_, e) => { e.Cancel = true; cancelled.Cancel(); };
     Console.CancelKeyPress += handler;
@@ -95,6 +97,7 @@ sealed class Configuration
     public string[]? Exclude { get; set; }
     public string? Format { get; set; }
     public string? Filter { get; set; }
+    public bool ConfirmKills { get; set; }
     public int MaxMutants { get; set; } = 20;
     public int TimeoutSeconds { get; set; } = 60;
 }

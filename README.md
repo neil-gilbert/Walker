@@ -167,6 +167,8 @@ CLI arguments override the config. Repeated `--tests`/`--exclude` replace their 
 Errors take precedence over incomplete execution; incomplete takes precedence over survivors. Check `results` even when a run was incomplete: walkers found before nightfall are still real.
 
 - **Compilation errors are never kills.** A mutant that never compiled was never a threat.
+- Killed results include `failingTests` names from TRX (at most 10). Optional `--confirm-kills` (or `"confirmKills": true` in config) rebuilds restored production and reruns only failing test methods, intersected with the original filter. It is off by default and costs extra builds/test runs inside the same global budget. Parameterized methods can rerun all rows admitted by that filter.
+- A repeat failure on unmutated source becomes `TestError`, with `killConfirmed: false`; passing confirmation retains `Killed` with `killConfirmed: true`. `confirmationMs` records its cost. Missing/unsupported identities or more than 10 failures cannot be safely confirmed and yield `TestError`; confirmation cancellation yields `TimedOut`. One confirmation reduces false kills but cannot prove tests are never flaky.
 - Test failures come from TRX counters, not from a generic nonzero exit code.
 - A run with no executed tests is an error. An empty camp is not a defended camp.
 - A run with no eligible changed expressions is `incomplete`. No horde means no evidence.

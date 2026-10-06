@@ -75,7 +75,8 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             error = "No eligible changed expressions; verification provides no mutation evidence.";
         return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter, unresolvedBoolean)
         {
-            Files = SummarizeFiles(files, mutants, selected)
+            Files = SummarizeFiles(files, mutants, selected),
+            ConfirmKills = request.ConfirmKills
         };
     }
     private static FileVerificationSummary[] SummarizeFiles(IReadOnlyList<SourceChange> changes,

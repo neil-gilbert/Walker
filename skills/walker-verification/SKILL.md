@@ -92,7 +92,7 @@ A zero-candidate run is incomplete because it provides no mutation evidence. A t
 
 Outcome meanings:
 
-- `Killed`: executed tests failed with the mutation present. Baseline tests must have passed.
+- `Killed`: inspect `failingTests` (capped at 10 names). With slow/flaky integration suites, consider `--confirm-kills` or config `"confirmKills": true`: after exact-byte restoration it rebuilds production and reruns the failed test methods intersected with the same filter. This adds builds/tests within the global budget; parameterized methods may run multiple rows. Repeated failures on unmutated source are `TestError` with `killConfirmed: false`; successful confirmation sets `killConfirmed: true`. Missing/unsupported identities or over 10 failures prevent confirmation and yield `TestError`. A confirmation reduces false kills but does not eliminate flakiness. Without confirmation, executed tests failed with the mutation present. Baseline tests must have passed.
 - `Survived`: executed relevant tests still passed.
 - `CompileError`: the production mutation did not build. This is not a kill.
 - `TestError`: tests did not execute normally, had no executed tests, or a test-project build failed. This is not a kill.

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using System.Xml;
+using System.Text.RegularExpressions;
 using Walker.Core;
 namespace Walker.Execution;
 public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hangAllowance = null) : IMutationExecutor, IBaselineVerifier
@@ -28,6 +28,59 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
         baselinePassed = true;
     }
     public async Task<MutationResult> ExecuteAsync(Walker.Core.Mutant mutant, VerificationContext context, CancellationToken cancellationToken)
+    {
+        var timer = Stopwatch.StartNew();
+        TestRunResult? killedRun = null;
+        // Await the entire attempt, including its finally: confirmation must see restored source and a cleared journal.
+        var result = await ExecuteMutationAsync(mutant, context, cancellationToken, run => killedRun = run);
+        if (!context.Request.ConfirmKills || result.Outcome != MutationOutcome.Killed) return result;
+        var confirmationTimer = Stopwatch.StartNew();
+        long buildMs = 0, testMs = 0;
+        MutationResult Finish(MutationOutcome outcome, string? detail, bool? confirmed = null) => result with
+        {
+            Outcome = outcome, Detail = detail, KillConfirmed = confirmed,
+            DurationMs = timer.ElapsedMilliseconds, ConfirmationMs = confirmationTimer.ElapsedMilliseconds,
+            BuildMs = result.BuildMs + buildMs, TestMs = result.TestMs + testMs
+        };
+        var failures = killedRun?.Failures ?? [];
+        // Bounded reporting must never silently confirm only a subset of failures, or broaden an unsafe filter.
+        if (killedRun?.FailureSelectionComplete != true || failures.Count == 0
+            || failures.Any(f => f.FullyQualifiedName == null || !Regex.IsMatch(f.FullyQualifiedName, @"^[\p{L}\p{N}_.+`<>\[\],]+$")))
+            return Finish(MutationOutcome.TestError, "Kill could not be confirmed: missing, unsupported, or more than 10 failing-test identities in TRX. No unmutated tests were run.");
+        var failedFilter = string.Join("|", failures.Select(f => f.FullyQualifiedName!).Distinct(StringComparer.Ordinal)
+            .Select(name => "FullyQualifiedName=" + name.Replace(",", "%2C")));
+        // Preserve the original scope (including trait filters) when selecting failed test methods.
+        var filter = killedRun!.Filter == null ? failedFilter : "(" + killedRun.Filter + ")&(" + failedFilter + ")";
+        using var hang = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (baselinePassed) hang.CancelAfter(HangLimit);
+        try
+        {
+            // Restoration changed production again. Rebuild it explicitly even for customized test references.
+            var build = await Build(context.Request.Project, context.Request.Root, hang.Token, restore: false);
+            buildMs += build.DurationMs;
+            if (build.ExitCode != 0) return Finish(MutationOutcome.TestError, "Unmutated confirmation build failed: " + Diagnostic(build));
+            var confirmation = await RunTests(new([failures[0].Project], filter), context.Request.Root, hang.Token, baseline: false);
+            buildMs += confirmation.BuildMs;
+            testMs += confirmation.TestMs;
+            return confirmation.Outcome switch
+            {
+                MutationOutcome.Survived => Finish(MutationOutcome.Killed, "Failing test methods passed on restored, unmutated source.", true),
+                MutationOutcome.Killed => Finish(MutationOutcome.TestError, "Failing tests also failed on unmutated source; the failure is not caused by the mutant (possible flaky tests).", false),
+                _ => Finish(MutationOutcome.TestError, "Kill could not be confirmed on unmutated source: " + confirmation.Detail)
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Finish(MutationOutcome.TimedOut, "Kill confirmation cancelled or exhausted the verification budget; source was already restored.");
+        }
+        catch (OperationCanceledException)
+        {
+            return Finish(MutationOutcome.TestError, "Unmutated kill confirmation exceeded the hang limit; evidence is unreliable.");
+        }
+        catch (Exception ex) { return Finish(MutationOutcome.TestError, "Kill confirmation failed: " + ex.Message); }
+    }
+    private async Task<MutationResult> ExecuteMutationAsync(Walker.Core.Mutant mutant, VerificationContext context,
+        CancellationToken cancellationToken, Action<TestRunResult> recordKilled)
     {
         var timer = Stopwatch.StartNew();
         var path = Path.GetFullPath(mutant.File, context.Request.Root);
@@ -62,7 +115,7 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
             }
             using var hang = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             if (baselinePassed) hang.CancelAfter(HangLimit);
-            (MutationOutcome Outcome, long BuildMs, long TestMs, string? Detail) tests;
+            TestRunResult tests;
             try
             {
                 tests = await RunTests(selection, context.Request.Root, hang.Token, baseline: false,
@@ -75,8 +128,10 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
             }
             buildMs += tests.BuildMs;
             testMs = tests.TestMs;
+            if (tests.Outcome == MutationOutcome.Killed) recordKilled(tests);
             return new(mutant, tests.Outcome, timer.ElapsedMilliseconds, buildMs, testMs, tests.Detail,
-                tests.Outcome == MutationOutcome.Survived ? SurvivorClassification.Survived : null);
+                tests.Outcome == MutationOutcome.Survived ? SurvivorClassification.Survived : null,
+                tests.Outcome == MutationOutcome.Killed ? tests.Failures?.Select(f => f.Name).ToArray() ?? [] : null);
         }
         catch (OperationCanceledException) { return new(mutant, MutationOutcome.TimedOut, timer.ElapsedMilliseconds, buildMs, testMs, "Execution cancelled; source restored."); }
         catch (Exception ex) { return new(mutant, MutationOutcome.TestError, timer.ElapsedMilliseconds, buildMs, testMs, ex.Message); }
@@ -100,9 +155,9 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
         }
         return runner.RunAsync(new("dotnet", args, root, OutputLimit: observe ? 1024 * 1024 : 16384), token);
     }
-    private async Task<(MutationOutcome Outcome, long BuildMs, long TestMs, string? Detail)> RunTests(TestSelection selection, string root, CancellationToken token, bool baseline = true, string? classifyBuildFailureFor = null)
+    private async Task<TestRunResult> RunTests(TestSelection selection, string root, CancellationToken token, bool baseline = true, string? classifyBuildFailureFor = null)
     {
-        if (selection.Projects.Count == 0) return (MutationOutcome.TestError, 0, 0, "No relevant test projects selected.");
+        if (selection.Projects.Count == 0) return new(MutationOutcome.TestError, 0, 0, "No relevant test projects selected.");
         long buildMs = 0, testMs = 0;
         
         foreach (var project in selection.Projects)
@@ -112,7 +167,7 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
                 // Baseline builds every dependency once and records reference metadata for build sharing.
                 var build = await Build(project, root, token, observe: true);
                 buildMs += build.DurationMs;
-                if (build.ExitCode != 0) return (MutationOutcome.TestError, buildMs, testMs, "Test project build failed: " + Diagnostic(build));
+                if (build.ExitCode != 0) return new(MutationOutcome.TestError, buildMs, testMs, "Test project build failed: " + Diagnostic(build));
                 if (!build.OutputTruncated) buildCoverage?.ObserveTestBuild(project, build.StandardOutput);
             }
             var directory = Path.Combine(Path.GetTempPath(), "walker-" + Guid.NewGuid().ToString("N"));
@@ -130,28 +185,37 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
                 var reports = Directory.GetFiles(directory, "*.trx", SearchOption.AllDirectories);
                 if (reports.Length == 0)
                 {
-                    if (baseline || run.ExitCode == 0) return (MutationOutcome.TestError, buildMs, testMs, "Test runner produced no TRX results: " + Diagnostic(run));
+                    if (baseline || run.ExitCode == 0) return new(MutationOutcome.TestError, buildMs, testMs, "Test runner produced no TRX results: " + Diagnostic(run));
                     // The test build includes production on the fast path. Diagnose only a failed
                     // run with a separate production build so CompileError/TestError remain exact.
                     if (classifyBuildFailureFor != null)
                     {
                         var production = await Build(classifyBuildFailureFor, root, token, restore: false);
                         buildMs += production.DurationMs;
-                        if (production.ExitCode != 0) return (MutationOutcome.CompileError, buildMs, testMs, Diagnostic(production));
+                        if (production.ExitCode != 0) return new(MutationOutcome.CompileError, buildMs, testMs, Diagnostic(production));
                     }
-                    return (MutationOutcome.TestError, buildMs, testMs, "Test project build or test run failed without results: " + Diagnostic(run));
+                    return new(MutationOutcome.TestError, buildMs, testMs, "Test project build or test run failed without results: " + Diagnostic(run));
                 }
                 var total = 0; var failed = 0;
+                var failures = new List<TestFailure>();
+                var complete = true;
                 foreach (var report in reports)
                 {
-                    var counters = ReadReport(report);
-                    if (counters.Error != null) return (MutationOutcome.TestError, buildMs, testMs, counters.Error);
+                    var counters = TrxReport.Read(report);
+                    if (counters.Error != null) return new(MutationOutcome.TestError, buildMs, testMs, counters.Error);
                     total += counters.Executed; failed += counters.Failed;
+                    complete &= counters.FailureSelectionComplete;
+                    foreach (var failure in counters.Failures)
+                    {
+                        if (failures.Count < 10) failures.Add(new(failure.Name, failure.FullyQualifiedName, project));
+                        else complete = false;
+                    }
                 }
                 if (total == 0 || (run.ExitCode != 0 && failed == 0) || (run.ExitCode == 0 && failed > 0))
-                    return (MutationOutcome.TestError, buildMs, testMs, "No executed tests or inconsistent runner results: " + Diagnostic(run));
+                    return new(MutationOutcome.TestError, buildMs, testMs, "No executed tests or inconsistent runner results: " + Diagnostic(run));
                 // One confirmed test failure is sufficient evidence; baseline validated every project.
-                if (failed > 0) return (MutationOutcome.Killed, buildMs, testMs, null);
+                if (failed > 0) return new(MutationOutcome.Killed, buildMs, testMs, Failures: failures,
+                    FailureSelectionComplete: complete, Filter: selection.Filter);
             }
             finally
             {
@@ -160,27 +224,11 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
         }
-        return (MutationOutcome.Survived, buildMs, testMs, null);
+        return new(MutationOutcome.Survived, buildMs, testMs, null);
     }
-    // Stream the report: only ResultSummary/Counters are needed, and Results can be large.
-    private static (int Executed, int Failed, string? Error) ReadReport(string path)
-    {
-        using var reader = XmlReader.Create(path, new XmlReaderSettings { IgnoreComments = true, IgnoreWhitespace = true });
-        (int Executed, int Failed)? counters = null;
-        while (reader.Read())
-        {
-            if (reader.NodeType != XmlNodeType.Element) continue;
-            if (reader.LocalName == "ResultSummary" && reader.GetAttribute("outcome") is "Aborted" or "Error")
-                return (0, 0, "Test execution aborted or reported infrastructure errors.");
-            if (reader.LocalName != "Counters" || counters != null) continue;
-            int Count(string name) => int.TryParse(reader.GetAttribute(name), out var value) ? value : 0;
-            var executed = Count("executed"); var failures = Count("failed");
-            if (executed != Count("passed") + failures || Count("error") > 0 || Count("timeout") > 0 || Count("aborted") > 0)
-                return (0, 0, "Test execution aborted or reported infrastructure errors.");
-            counters = (executed, failures);
-        }
-        return counters is { } found ? (found.Executed, found.Failed, null) : (0, 0, "Malformed test report.");
-    }
+    private sealed record TestFailure(string Name, string? FullyQualifiedName, string Project);
+    private sealed record TestRunResult(MutationOutcome Outcome, long BuildMs, long TestMs, string? Detail = null,
+        IReadOnlyList<TestFailure>? Failures = null, bool FailureSelectionComplete = false, string? Filter = null);
     private static string Diagnostic(ProcessResult result)
     {
         var text = (result.StandardError + "\n" + result.StandardOutput).Trim();

@@ -45,6 +45,9 @@ public static class TextReportWriter
             writer.WriteLine(JsonSerializer.Serialize(new { result.Timings, PerMutant = result.Results.Select(r => new { r.Mutant.Id, r.DurationMs, r.BuildMs, r.TestMs }) },
                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true }));
         if (result.Survived > 0) writer.WriteLine("If it still walks, your tests aren't done.");
+        if (verbose)
+            foreach (var killed in result.Results.Where(r => r.Outcome == MutationOutcome.Killed))
+                writer.WriteLine($"Killed {killed.Mutant.Id}: {string.Join(", ", killed.FailingTests ?? [])}{(killed.KillConfirmed == true ? " (confirmed on unmutated source)" : "")}");
         writer.WriteLine(result.Guidance);
     }
 }

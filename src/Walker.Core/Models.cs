@@ -13,9 +13,10 @@ public record Mutant(string Id, string File, int Line, string Member, MutationOp
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 }
 public record MutationResult(Mutant Mutant, MutationOutcome Outcome, long DurationMs = 0,
-    long BuildMs = 0, long TestMs = 0, string? Detail = null, SurvivorClassification? Classification = null);
+    long BuildMs = 0, long TestMs = 0, string? Detail = null, SurvivorClassification? Classification = null, IReadOnlyList<string>? FailingTests = null,
+    bool? KillConfirmed = null, long ConfirmationMs = 0);
 public record VerificationRequest(string Root, string Base, string Project, IReadOnlyList<string> Tests,
-    int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null, string? Filter = null);
+    int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null, string? Filter = null, bool ConfirmKills = false);
 public record TestSelection(IReadOnlyList<string> Projects, string? Filter = null);
 public record VerificationContext(VerificationRequest Request, ITestSelector TestSelector);
 public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0, int UnresolvedBoolean = 0);
@@ -25,6 +26,7 @@ public record VerificationResult(string Status, string Base, int ChangedFiles, i
     int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0, string? TestFilter = null, int UnresolvedBoolean = 0)
 {
     public IReadOnlyList<FileVerificationSummary> Files { get; init; } = [];
+    public bool ConfirmKills { get; init; }
     public int SchemaVersion => 1;
     public int MutantsExecuted => Results.Count(r => r.Outcome != MutationOutcome.Skipped);
     public int Killed => Results.Count(r => r.Outcome == MutationOutcome.Killed);

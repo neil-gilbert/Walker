@@ -52,7 +52,7 @@ public sealed class IntegrationTests
         workspace.Write("walker.json", "{\"filter\":\"FullyQualifiedName~PaymentTests\"}");
         workspace.Write("Payments.Tests/UnrelatedTests.cs", "using Xunit; public class UnrelatedTests { [Fact] public void AlwaysFails() => Assert.True(false); }");
         async Task<ProcessResult> Verify(string? filter = null) => await Run("dotnet", [cli, "verify", "--project", "Payments/Payments.csproj",
-            "--tests", "Payments.Tests/Payments.Tests.csproj", "--max-mutants", "1", "--timeout", "120", "--format", "json", ..(filter == null ? Array.Empty<string>() : new[] { "--filter", filter })]);
+            "--tests", "Payments.Tests/Payments.Tests.csproj", "--max-mutants", "1", "--timeout", "120", "--format", "json", "--confirm-kills", ..(filter == null ? Array.Empty<string>() : new[] { "--filter", filter })]);
         var weak = await Verify();
         Assert.True(weak.ExitCode == 1, weak.StandardOutput + weak.StandardError);
         using (var report = JsonDocument.Parse(weak.StandardOutput))
@@ -70,6 +70,10 @@ public sealed class IntegrationTests
         using (var report = JsonDocument.Parse(strong.StandardOutput))
         {
             Assert.Equal(1, report.RootElement.GetProperty("killed").GetInt32());
+            Assert.True(report.RootElement.GetProperty("confirmKills").GetBoolean());
+            var killed = report.RootElement.GetProperty("results")[0];
+            Assert.True(killed.GetProperty("killConfirmed").GetBoolean());
+            Assert.Contains("EqualityCanPurchase", killed.GetProperty("failingTests")[0].GetString());
             Assert.Equal("FullyQualifiedName~PaymentTests|FullyQualifiedName~BoundaryTests", report.RootElement.GetProperty("testFilter").GetString());
         }
         if (!transitiveReference)
