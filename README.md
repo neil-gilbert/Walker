@@ -257,6 +257,12 @@ The integration test builds an isolated Git repository. Changing `balance > pric
 
 The [performance review](docs/performance.md) records measured costs and optimizations. The [benchmark script](scripts/benchmark.py) runs the example against this verifier and Stryker.NET in a temporary repository. It records wall time, executed mutants and survivors. Results apply to that change and fixture only; they are not a general speed claim. See the [benchmark guidance](docs/benchmark.md).
 
+Every PR runs a Release build/test check and a performance comparison against its
+base commit. Open the **Performance comparison** Actions summary for
+BenchmarkDotNet timings, allocations and end-to-end speed changes; download the
+attached artifact for full reports. Timing changes are informational because hosted
+runner noise can outweigh small improvements.
+
 ---
 
 <sub>Walker is a tribute to zombie fiction and is not affiliated with *The Walking Dead* or its owners. No tests were harmed. Several were found to be dead inside.</sub>

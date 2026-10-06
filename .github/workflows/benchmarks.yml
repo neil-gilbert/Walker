@@ -1,0 +1,80 @@
+name: Performance comparison
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Commit or branch to compare against
+        default: main
+        type: string
+
+# PR code runs with a read-only token, including for fork PRs.
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: head
+          persist-credentials: false
+      - name: Check out baseline
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.event.repository.default_branch }}
+          path: base
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Use identical benchmark source for both revisions
+        run: |
+          rm -rf base/benchmarks/Walker.Benchmarks
+          mkdir -p base/benchmarks
+          cp -R head/benchmarks/Walker.Benchmarks base/benchmarks/
+          cp head/global.json base/global.json
+          mkdir -p artifacts
+          git -C base rev-parse HEAD > artifacts/base-sha.txt
+          git -C head rev-parse HEAD > artifacts/head-sha.txt
+          (cd head && dotnet --info) > artifacts/dotnet-info.txt
+      - name: Build both CLI revisions in Release
+        run: |
+          dotnet build base/src/Walker.Cli/Walker.Cli.csproj -c Release
+          dotnet build head/src/Walker.Cli/Walker.Cli.csproj -c Release
+      - name: Benchmark baseline
+        working-directory: base
+        run: dotnet run -c Release --project benchmarks/Walker.Benchmarks -- --filter '*' --job short --exporters json --artifacts ../artifacts/base
+      - name: Benchmark PR head
+        working-directory: head
+        run: dotnet run -c Release --project benchmarks/Walker.Benchmarks -- --filter '*' --job short --exporters json --artifacts ../artifacts/head
+      - name: Compare completed verification latency
+        working-directory: head
+        run: |
+          python3 scripts/benchmark.py --skip-stryker --repetitions 3 \
+            --cli src/Walker.Cli/bin/Release/net8.0/Walker.Cli.dll \
+            --compare-cli ../base/src/Walker.Cli/bin/Release/net8.0/Walker.Cli.dll \
+            --output ../artifacts/end-to-end
+      - name: Write comparison summary
+        if: always()
+        run: python3 head/scripts/compare-benchmarks.py artifacts --summary "$GITHUB_STEP_SUMMARY"
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison-${{ github.event.pull_request.number || github.run_id }}
+          path: artifacts
+          if-no-files-found: warn
+          retention-days: 30

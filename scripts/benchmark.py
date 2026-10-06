@@ -18,6 +18,7 @@ parser.add_argument('--stryker', default='dotnet-stryker', help='Path to an inst
 parser.add_argument('--timeout', type=int, default=120, help='Per-tool wall-time safety limit')
 parser.add_argument('--output', default='artifacts/benchmark')
 parser.add_argument('--compare-cli', type=Path, help='Optional pre-change CLI DLL for paired measurements')
+parser.add_argument('--cli', type=Path, help='CLI DLL to measure (defaults to the Debug build)')
 parser.add_argument('--repetitions', type=int, default=1)
 parser.add_argument('--skip-stryker', action='store_true')
 parser.add_argument('--sample-text', action='store_true', help='Also capture a real human-readable sample run')
@@ -27,7 +28,7 @@ if args.compare_cli: args.compare_cli = args.compare_cli.resolve()
 repo = Path(__file__).resolve().parents[1]
 output = Path(args.output).resolve()
 output.mkdir(parents=True, exist_ok=True)
-cli = repo / 'src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll'
+cli = args.cli.resolve() if args.cli else repo / 'src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll'
 if not cli.exists():
     raise SystemExit('Build the verifier first: dotnet build Walker.sln')
 
