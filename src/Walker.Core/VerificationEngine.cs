@@ -15,6 +15,9 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
         var results = new List<MutationResult>();
         var timings = new PhaseTimings();
         string? error = null;
+        var infrastructureError = false;
+        var baselineStarted = false;
+        var baselineCompleted = false;
         var unresolved = 0;
         try
         {
@@ -29,8 +32,13 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             if (selected.Length > 0)
             {
                 phase.Restart();
-                await baseline.VerifyAsync(request, token);
-                timings = timings with { BaselineMs = phase.ElapsedMilliseconds };
+                baselineStarted = true;
+                try
+                {
+                    await baseline.VerifyAsync(request, token);
+                    baselineCompleted = true;
+                }
+                finally { timings = timings with { BaselineMs = phase.ElapsedMilliseconds }; }
                 var context = new VerificationContext(request, new AllTestsSelector(request.Tests, request.Filter));
                 foreach (var mutant in selected)
                 {
@@ -42,13 +50,21 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                 }
             }
         }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { error = ex.Message; }
+        catch (OperationCanceledException)
+        {
+            if (baselineStarted && !baselineCompleted)
+                error = cancellationToken.IsCancellationRequested
+                    ? "Baseline cancelled before any mutant could start; no mutation evidence was collected."
+                    : "Verification budget expired during the baseline before any mutant could start. The budget is smaller than one baseline run; use --filter to narrow the test scope or increase --timeout.";
+        }
+        catch (Exception ex) { infrastructureError = true; error = ex.Message; }
         var completed = results.Select(r => r.Mutant.Id).ToHashSet(StringComparer.Ordinal);
         foreach (var mutant in selected.Where(m => !completed.Contains(m.Id)))
-            results.Add(new(mutant, MutationOutcome.Skipped, Detail: error ?? "Verification budget exhausted or cancelled."));
+            results.Add(new(mutant, MutationOutcome.Skipped, Detail: baselineStarted && !baselineCompleted
+                ? "Skipped because the baseline did not complete; no mutant could start. " + error
+                : error ?? "Verification budget exhausted or cancelled."));
         var incomplete = token.IsCancellationRequested || results.Any(r => r.Outcome is MutationOutcome.TimedOut or MutationOutcome.Skipped);
-        var status = error != null || results.Any(r => r.Outcome is MutationOutcome.CompileError or MutationOutcome.TestError) ? "error"
+        var status = infrastructureError || results.Any(r => r.Outcome is MutationOutcome.CompileError or MutationOutcome.TestError) ? "error"
             : incomplete ? "incomplete" : results.Any(r => r.Outcome == MutationOutcome.Survived) ? "failed"
             : selected.Length == 0 ? "incomplete" : "passed";
         if (status == "incomplete" && token.IsCancellationRequested)

@@ -61,6 +61,43 @@ public sealed class EngineTests
         var result = await new VerificationEngine(fake, fake, fake, fake).VerifyAsync(Request());
         Assert.Equal(code, result.ExitCode);
     }
+    [Theory]
+    [InlineData("budget", 3)]
+    [InlineData("cancel", 3)]
+    [InlineData("failure", 2)]
+    public async Task UnfinishedBaselineRetainsTimingAndExplainsSkippedMutants(string mode, int exitCode)
+    {
+        var fake = new FakeEngine([DiscoveryTests.Dummy("a")], _ => throw new Exception("Must not execute"));
+        using var cancellation = new CancellationTokenSource();
+        var baseline = new Baseline(async token =>
+        {
+            if (mode == "budget") await Task.Delay(Timeout.Infinite, token);
+            else
+            {
+                await Task.Delay(30, token);
+                if (mode == "cancel") { cancellation.Cancel(); token.ThrowIfCancellationRequested(); }
+                throw new InvalidOperationException("Baseline build failed");
+            }
+        });
+        var result = await new VerificationEngine(fake, fake, fake, baseline)
+            .VerifyAsync(Request() with { TimeoutSeconds = 1 }, cancellation.Token);
+        Assert.Equal(exitCode, result.ExitCode);
+        Assert.True(result.Timings.BaselineMs > 0);
+        Assert.Equal(0, result.MutantsExecuted);
+        Assert.Contains("baseline did not complete", Assert.Single(result.Results).Detail);
+        if (mode == "budget")
+        {
+            Assert.Contains("during the baseline before any mutant could start", result.Error);
+            Assert.Contains("smaller than one baseline run", result.Error);
+            Assert.Contains("--filter", result.Error);
+            Assert.Contains("--timeout", result.Error);
+        }
+        if (mode == "cancel") Assert.Contains("Baseline cancelled", result.Error);
+    }
+    private sealed class Baseline(Func<CancellationToken, Task> run) : IBaselineVerifier
+    {
+        public Task VerifyAsync(VerificationRequest request, CancellationToken token) => run(token);
+    }
     private static VerificationRequest Request() => new("root", "HEAD~1", "project", ["tests"]);
 }
 internal sealed class FakeEngine(IReadOnlyList<Walker.Core.Mutant> mutants, Func<Walker.Core.Mutant, MutationResult> execute,

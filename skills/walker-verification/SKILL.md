@@ -86,6 +86,8 @@ Check `schemaVersion` before relying on fields; this implementation uses version
 | 2 | Build, test, discovery, or infrastructure error | Inspect `error` and result `detail`. Fix or report the execution problem; do not infer missing assertions. |
 | 3 | Verification incomplete | Report missing evidence, completed results, and timeout/skips. Do not call this a pass. |
 
+If `error` says the baseline exhausted the budget before any mutant started, inspect `timings.baselineMs`. Narrow the relevant suite with `--filter` or increase `--timeout`; skipped mutants have no execution evidence. Baseline failure and cancellation also retain elapsed baseline time.
+
 A zero-candidate run is incomplete because it provides no mutation evidence. A timeout or cancellation is incomplete even if completed mutants were killed. An infrastructure error takes precedence over incompleteness; incomplete runs may also contain survivors worth investigating.
 
 Outcome meanings:

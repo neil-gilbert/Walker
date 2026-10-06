@@ -199,6 +199,7 @@ Errors take precedence over incomplete execution; incomplete takes precedence ov
 ### Before dark (budgets and timeouts)
 
 - The `--timeout` budget covers discovery, baseline and execution. When it runs out, no new mutants start, the running process tree is stopped and source cleanup finishes. Cleanup can go slightly past the budget.
+- If the budget expires during the baseline, `baselineMs` records the elapsed work, no mutant starts, and skipped results identify the unfinished baseline. The report suggests `--filter` or a larger `--timeout`; this is exit 3, never a pass. Baseline failures also retain their elapsed timing and remain exit 2.
 - Each mutant also has a **hang limit** of 3× the baseline test-project build and test time plus 5 seconds. A mutant that goes past it (for example an infinite loop) is `Hung`: it counts as detected and the hunt continues. Only the global budget makes a run incomplete.
 
 ### Fighting (execution)
