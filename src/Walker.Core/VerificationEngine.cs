@@ -1,0 +1,60 @@
+using System.Diagnostics;
+namespace Walker.Core;
+public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscoverer discovery,
+    IMutationExecutor executor, IBaselineVerifier baseline)
+{
+    public async Task<VerificationResult> VerifyAsync(VerificationRequest request, CancellationToken cancellationToken = default)
+    {
+        var clock = Stopwatch.StartNew();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(request.TimeoutSeconds));
+        var token = budget.Token;
+        IReadOnlyList<SourceChange> files = [];
+        IReadOnlyList<Mutant> mutants = [];
+        Mutant[] selected = [];
+        var results = new List<MutationResult>();
+        var timings = new PhaseTimings();
+        string? error = null;
+        try
+        {
+            var phase = Stopwatch.StartNew();
+            files = await changes.GetChangesAsync(request, token);
+            timings = timings with { GitMs = phase.ElapsedMilliseconds };
+            var found = await discovery.DiscoverAsync(request.Root, files, token);
+            mutants = found.Mutants;
+            timings = timings with { ParsingMs = found.ParsingMs, DiscoveryMs = found.DiscoveryMs };
+            selected = Select(mutants, request.MaxMutants);
+            if (selected.Length > 0)
+            {
+                phase.Restart();
+                await baseline.VerifyAsync(request, token);
+                timings = timings with { BaselineMs = phase.ElapsedMilliseconds };
+                var context = new VerificationContext(request, new AllTestsSelector(request.Tests));
+                foreach (var mutant in selected)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var result = await executor.ExecuteAsync(mutant, context, token);
+                    results.Add(result);
+                    if (result.Outcome == MutationOutcome.TimedOut) break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { error = ex.Message; }
+        var completed = results.Select(r => r.Mutant.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var mutant in selected.Where(m => !completed.Contains(m.Id)))
+            results.Add(new(mutant, MutationOutcome.Skipped, Detail: error ?? "Verification budget exhausted or cancelled."));
+        var incomplete = token.IsCancellationRequested || results.Any(r => r.Outcome is MutationOutcome.TimedOut or MutationOutcome.Skipped);
+        var status = error != null || results.Any(r => r.Outcome is MutationOutcome.CompileError or MutationOutcome.TestError) ? "error"
+            : incomplete ? "incomplete" : results.Any(r => r.Outcome == MutationOutcome.Survived) ? "failed"
+            : selected.Length == 0 ? "incomplete" : "passed";
+        if (status == "incomplete" && token.IsCancellationRequested)
+            error ??= "Verification budget exhausted or cancelled; available results are incomplete.";
+        if (selected.Length == 0 && error == null && !token.IsCancellationRequested)
+            error = "No eligible changed expressions; verification provides no mutation evidence.";
+        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error);
+    }
+    public static Mutant[] Select(IEnumerable<Mutant> mutants, int maximum) => mutants
+        .OrderBy(m => m.Operator).ThenBy(m => m.File, StringComparer.Ordinal).ThenBy(m => m.Line)
+        .ThenBy(m => m.SpanStart).ThenBy(m => m.Id, StringComparer.Ordinal).Take(maximum).ToArray();
+}

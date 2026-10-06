@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup></PropertyGroup><ItemGroup><ProjectReference Include="../Walker.Core/Walker.Core.csproj" /><PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" /></ItemGroup></Project>

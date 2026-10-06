@@ -426,3 +426,16 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Walker local SDK, caches, and verification artifacts
+bin/
+obj/
+.dotnet/
+artifacts/
+TestResults/
+stryker-output/
+.nuget/
+.walker.lock
+StrykerOutput/
+__pycache__/
+*.py[cod]
