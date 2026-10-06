@@ -28,8 +28,9 @@ public sealed class BuildReuseTests
         fixture.Calls.Clear();
         var result = await fixture.Execute();
         Assert.Equal(MutationOutcome.Survived, result.Outcome);
-        Assert.Equal(sharesBuild ? 1 : 2, fixture.Calls.Count(c => c.Arguments[0] == "build"));
-        Assert.Contains(fixture.Calls, c => c.Arguments[0] == "build" && c.Arguments[1] == "Tests.csproj");
+        // The mutant's `dotnet test` builds the test graph; only an unshared layout adds a production build.
+        Assert.Equal(sharesBuild ? 0 : 1, fixture.Calls.Count(c => c.Arguments[0] == "build"));
+        Assert.Single(fixture.Calls, c => c.Arguments[0] == "test" && c.Arguments[1] == "Tests.csproj" && !c.Arguments.Contains("--no-build"));
         Assert.Equal(fixture.Bytes, File.ReadAllBytes(fixture.SourcePath));
     }
     [Theory]
@@ -94,6 +95,7 @@ public sealed class BuildReuseTests
                     if (!Baseline && (production ? ProductionBuildFails : TestBuildFails)) return new(1, "build failed", "", 1);
                     return new(0, Metadata(layout, production), "", 1, layout == "truncated");
                 }
+                if (!Baseline && TestBuildFails) return new(1, "build failed", "", 1);
                 var directory = request.Arguments[request.Arguments.ToList().IndexOf("--results-directory") + 1];
                 var failed = TestsFail ? 1 : 0;
                 File.WriteAllText(Path.Combine(directory, "tests.trx"), $"<TestRun><ResultSummary><Counters executed='1' passed='{1 - failed}' failed='{failed}' /></ResultSummary></TestRun>");

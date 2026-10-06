@@ -12,9 +12,12 @@ public static class TextReportWriter
         writer.WriteLine($"{result.MutantsSelected} selected for verification");
         writer.WriteLine($"{result.MutantsExecuted}/{result.MutantsSelected} executed");
         writer.WriteLine($"{result.Killed} KILLED");
+        if (result.Hung > 0) writer.WriteLine($"{result.Hung} hung (exceeded the per-mutant hang limit; counted as detected)");
         writer.WriteLine($"{result.Survived} {(result.Survived == 1 ? "WALKER" : "WALKERS")}");
         if (result.CompileErrors + result.TestErrors + result.TimedOut + result.Skipped > 0)
             writer.WriteLine($"{result.CompileErrors + result.TestErrors} errored, {result.TimedOut} timed out, {result.Skipped} skipped");
+        if (result.UnresolvedArithmetic > 0)
+            writer.WriteLine($"{result.UnresolvedArithmetic} arithmetic {(result.UnresolvedArithmetic == 1 ? "candidate" : "candidates")} not mutated: operand types could not be resolved");
         writer.WriteLine(result.Status switch
         {
             "passed" => "SAFE — nothing is still walking.",

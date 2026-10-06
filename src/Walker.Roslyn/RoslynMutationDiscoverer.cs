@@ -5,28 +5,34 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Walker.Core;
 namespace Walker.Roslyn;
-public sealed class RoslynMutationDiscoverer : IMutationDiscoverer
+// contextSources: the production project's Compile items, used only when arithmetic needs operand types.
+public sealed class RoslynMutationDiscoverer(Func<CancellationToken, Task<IEnumerable<string>>>? contextSources = null) : IMutationDiscoverer
 {
     private static readonly Lazy<MetadataReference[]> References = new(() => ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
         .Split(Path.PathSeparator).Select(p => MetadataReference.CreateFromFile(p)).ToArray());
+    // SDK implicit usings come from a build-generated file that Compile-item evaluation does not list.
+    // An extra using can only make a name ambiguous (then skipped), never bind a name the project cannot.
+    private static readonly SyntaxTree ImplicitUsings = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; "
+        + "global using System.IO; global using System.Linq; global using System.Net.Http; global using System.Threading; global using System.Threading.Tasks;");
     public async Task<DiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceChange> changes, CancellationToken cancellationToken)
     {
-        var result = new List<Walker.Core.Mutant>();
+        var result = new List<(int Order, Walker.Core.Mutant Mutant)>();
+        // Arithmetic needs type information. Defer it so one compilation serves every changed file,
+        // and nothing is loaded unless a changed arithmetic expression exists.
+        var pending = new List<(int Order, SyntaxTree Tree, BinaryExpressionSyntax Node, Func<Walker.Core.Mutant> Create)>();
+        var trees = new List<SyntaxTree>();
         long parsing = 0, discovery = 0;
-        foreach (var change in changes)
+        for (var order = 0; order < changes.Count; order++)
         {
+            var change = changes[order];
             cancellationToken.ThrowIfCancellationRequested();
             var source = await File.ReadAllTextAsync(Path.Combine(root, change.File), cancellationToken);
             var timer = Stopwatch.StartNew();
-            var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: cancellationToken);
+            var tree = CSharpSyntaxTree.ParseText(source, path: Path.GetFullPath(change.File, root), cancellationToken: cancellationToken);
             var syntax = await tree.GetRootAsync(cancellationToken);
+            trees.Add(tree);
             parsing += timer.ElapsedMilliseconds;
             timer.Restart();
-            // Most high-priority operators need no type information. Avoid loading metadata
-            // and constructing a compilation unless a changed arithmetic expression needs it.
-            SemanticModel? model = null;
-            SemanticModel GetModel() => model ??= CSharpCompilation.Create("Analysis", [tree], References.Value,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)).GetSemanticModel(tree);
             var regions = ChangedSpans(await tree.GetTextAsync(cancellationToken), change.Lines);
             string? sourceHash = null;
             foreach (var node in syntax.DescendantNodes(n => Intersects(regions, n.FullSpan)).OfType<ExpressionSyntax>())
@@ -39,7 +45,7 @@ public sealed class RoslynMutationDiscoverer : IMutationDiscoverer
                 if (member == null) continue;
                 (MutationOperator Op, string Replacement)? mutation = node switch
                 {
-                    BinaryExpressionSyntax b => Binary(b, GetModel, cancellationToken),
+                    BinaryExpressionSyntax b => Binary(b),
                     LiteralExpressionSyntax l when l.IsKind(SyntaxKind.TrueLiteralExpression) => (ReturnOrBoolean(l), "false"),
                     LiteralExpressionSyntax l when l.IsKind(SyntaxKind.FalseLiteralExpression) => (ReturnOrBoolean(l), "true"),
                     IsPatternExpressionSyntax p when p.Pattern is ConstantPatternSyntax c && c.Expression.IsKind(SyntaxKind.NullLiteralExpression)
@@ -54,13 +60,49 @@ public sealed class RoslynMutationDiscoverer : IMutationDiscoverer
                 var name = string.Join(".", node.Ancestors().OfType<TypeDeclarationSyntax>().Reverse().Select(t => t.Identifier.Text)
                     .Append(member switch { MethodDeclarationSyntax m => m.Identifier.Text, ConstructorDeclarationSyntax c => c.Identifier.Text,
                         PropertyDeclarationSyntax p => p.Identifier.Text, LocalFunctionStatementSyntax l => l.Identifier.Text, _ => member.Kind().ToString() }));
-                var id = Walker.Core.Mutant.Hash($"{change.File}|{name}|{node.SpanStart}|{mutation.Value.Op}|{original}|{mutation.Value.Replacement}")[..20];
-                result.Add(new(id, change.File, line, name, mutation.Value.Op, original, mutation.Value.Replacement,
-                    node.SpanStart, node.Span.Length, sourceHash ??= Walker.Core.Mutant.Hash(source)));
+                var (op, replacement) = mutation.Value;
+                Walker.Core.Mutant Create()
+                {
+                    var id = Walker.Core.Mutant.Hash($"{change.File}|{name}|{node.SpanStart}|{op}|{original}|{replacement}")[..20];
+                    return new(id, change.File, line, name, op, original, replacement, node.SpanStart, node.Span.Length, sourceHash ??= Walker.Core.Mutant.Hash(source));
+                }
+                if (op == MutationOperator.Arithmetic) pending.Add((order, tree, (BinaryExpressionSyntax)node, Create));
+                else result.Add((order, Create()));
             }
             discovery += timer.ElapsedMilliseconds;
         }
-        return new(result, parsing, discovery);
+        var unresolved = 0;
+        if (pending.Count > 0)
+        {
+            var timer = Stopwatch.StartNew();
+            var compilation = await CreateCompilationAsync(root, trees, cancellationToken);
+            var models = new Dictionary<SyntaxTree, SemanticModel>();
+            foreach (var (order, tree, node, create) in pending)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!models.TryGetValue(tree, out var model)) models[tree] = model = compilation.GetSemanticModel(tree);
+                // Only mutate arithmetic with known built-in numeric operands; skip strings and unknown overloads.
+                var left = model.GetTypeInfo(node.Left, cancellationToken).Type;
+                var right = model.GetTypeInfo(node.Right, cancellationToken).Type;
+                if (Numeric(left) && Numeric(right)) result.Add((order, create()));
+                else if (Unknown(left) || Unknown(right)) unresolved++;
+            }
+            discovery += timer.ElapsedMilliseconds;
+        }
+        return new(result.OrderBy(r => r.Order).ThenBy(r => r.Mutant.SpanStart).Select(r => r.Mutant).ToList(), parsing, discovery, unresolved);
+    }
+    private async Task<CSharpCompilation> CreateCompilationAsync(string root, IReadOnlyList<SyntaxTree> changed, CancellationToken cancellationToken)
+    {
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var included = changed.Select(t => t.FilePath).ToHashSet(comparer);
+        var trees = new List<SyntaxTree>(changed) { ImplicitUsings };
+        foreach (var path in contextSources == null ? [] : await contextSources(cancellationToken))
+        {
+            if (!included.Add(Path.GetFullPath(path, root)) || !File.Exists(path)) continue;
+            trees.Add(CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(path, cancellationToken), path: path, cancellationToken: cancellationToken));
+        }
+        return CSharpCompilation.Create("Analysis", trees, References.Value,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
     }
     private static TextSpan[] ChangedSpans(SourceText text, IReadOnlyList<LineRange> ranges)
     {
@@ -90,7 +132,7 @@ public sealed class RoslynMutationDiscoverer : IMutationDiscoverer
     }
     private static MutationOperator ReturnOrBoolean(SyntaxNode node) => node.Parent is ReturnStatementSyntax or ArrowExpressionClauseSyntax
         ? MutationOperator.ReturnValue : MutationOperator.BooleanLogic;
-    private static (MutationOperator, string)? Binary(BinaryExpressionSyntax node, Func<SemanticModel> getModel, CancellationToken token)
+    private static (MutationOperator, string)? Binary(BinaryExpressionSyntax node)
     {
         var op = node.OperatorToken.Text;
         string? replacement = op switch { ">" => ">=", ">=" => ">", "<" => "<=", "<=" => "<", "==" => "!=", "!=" => "==",
@@ -100,16 +142,11 @@ public sealed class RoslynMutationDiscoverer : IMutationDiscoverer
             "==" or "!=" => node.Left.IsKind(SyntaxKind.NullLiteralExpression) || node.Right.IsKind(SyntaxKind.NullLiteralExpression)
                 ? MutationOperator.NullHandling : MutationOperator.Equality,
             "&&" or "||" => MutationOperator.BooleanLogic, _ => MutationOperator.Arithmetic };
-        // Only mutate arithmetic with known built-in numeric operands; skip strings and unknown overloads.
-        if (kind == MutationOperator.Arithmetic)
-        {
-            var model = getModel();
-            if (!Numeric(model.GetTypeInfo(node.Left, token).Type) || !Numeric(model.GetTypeInfo(node.Right, token).Type)) return null;
-        }
         var local = node.OperatorToken.SpanStart - node.SpanStart;
         var text = node.ToString();
         return (kind, text[..local] + replacement + text[(local + node.OperatorToken.Span.Length)..]);
     }
+    private static bool Unknown(ITypeSymbol? type) => type is null or { TypeKind: TypeKind.Error };
     private static bool Numeric(ITypeSymbol? type) => type?.SpecialType is SpecialType.System_Byte or SpecialType.System_SByte
         or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32
         or SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal;

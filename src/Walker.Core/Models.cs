@@ -2,7 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 namespace Walker.Core;
 public enum MutationOperator { ConditionalBoundary, Equality, NullHandling, BooleanLogic, ReturnValue, Arithmetic }
-public enum MutationOutcome { Killed, Survived, CompileError, TestError, TimedOut, Skipped }
+// Hung: tests exceeded the per-mutant hang limit derived from the baseline; the change was detected.
+public enum MutationOutcome { Killed, Survived, CompileError, TestError, TimedOut, Skipped, Hung }
 public enum SurvivorClassification { Survived, IgnoredEquivalent, Accepted }
 public record LineRange(int Start, int End) { public bool Intersects(int start, int end) => Start <= end && End >= start; }
 public record SourceChange(string File, IReadOnlyList<LineRange> Lines, bool HasUncommittedChanges);
@@ -17,15 +18,16 @@ public record VerificationRequest(string Root, string Base, string Project, IRea
     int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null);
 public record TestSelection(IReadOnlyList<string> Projects, string? Filter = null);
 public record VerificationContext(VerificationRequest Request, ITestSelector TestSelector);
-public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs);
+public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0);
 public record PhaseTimings(long GitMs = 0, long ParsingMs = 0, long DiscoveryMs = 0, long BaselineMs = 0);
 public record VerificationResult(string Status, string Base, int ChangedFiles, int MutantsDiscovered,
-    int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null)
+    int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0)
 {
     public int SchemaVersion => 1;
     public int MutantsExecuted => Results.Count(r => r.Outcome != MutationOutcome.Skipped);
     public int Killed => Results.Count(r => r.Outcome == MutationOutcome.Killed);
     public int Survived => Results.Count(r => r.Outcome == MutationOutcome.Survived);
+    public int Hung => Results.Count(r => r.Outcome == MutationOutcome.Hung);
     public int CompileErrors => Results.Count(r => r.Outcome == MutationOutcome.CompileError);
     public int TestErrors => Results.Count(r => r.Outcome == MutationOutcome.TestError);
     public int TimedOut => Results.Count(r => r.Outcome == MutationOutcome.TimedOut);

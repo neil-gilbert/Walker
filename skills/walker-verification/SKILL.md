@@ -73,7 +73,7 @@ cat "$report_path"
 
 Substitute the compiled CLI or local-tool invocation when necessary. Preserve the exit code from the verifier itself; do not pipe it through a command that hides that code. Read the JSON only after the process exits and source restoration finishes.
 
-Check `schemaVersion` before relying on fields; this implementation uses version 1. Inspect `status`, `error`, `mutantsDiscovered`, `mutantsSelected`, `mutantsExecuted`, outcome counts, `survivors`, and `results`. Timings show discovery, baseline, build, test, and per-mutant cost. Selection is deterministic and bounded; candidates outside `--max-mutants` are not executed and are not counted as budget-skipped selected mutants.
+Check `schemaVersion` before relying on fields; this implementation uses version 1. Version 1 also contains the additive `hung` count, `Hung` outcome and `unresolvedArithmetic` count (arithmetic candidates whose operand types could not be resolved and were not mutated). Inspect `status`, `error`, `mutantsDiscovered`, `mutantsSelected`, `mutantsExecuted`, outcome counts, `survivors`, and `results`. Timings show discovery, baseline, build, test, and per-mutant cost. Selection is deterministic and bounded; candidates outside `--max-mutants` are not executed and are not counted as budget-skipped selected mutants.
 
 ## Interpret the result
 
@@ -92,6 +92,7 @@ Outcome meanings:
 - `Survived`: executed relevant tests still passed.
 - `CompileError`: the production mutation did not build. This is not a kill.
 - `TestError`: tests did not execute normally, had no executed tests, or a test-project build failed. This is not a kill.
+- `Hung`: build and tests exceeded the per-mutant hang limit (3× baseline + 5s), usually an infinite loop. Counted as detected, like `Killed`; the run continues.
 - `TimedOut`: current execution was cancelled or exceeded its available budget.
 - `Skipped`: a selected mutant was not executed, usually because the budget expired or the baseline failed.
 

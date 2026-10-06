@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-labelledby="title desc">
+  <title id="title">Walker</title>
+  <desc id="desc">Comic-book style banner: a shambling zombie in front of a full moon reaches toward the word WALKER. Caption: If it still walks, your tests aren't done.</desc>
+  <defs>
+    <pattern id="dots" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <circle cx="5.5" cy="5.5" r="2.3" fill="#d9b98a"/>
+    </pattern>
+    <radialGradient id="fade" cx="0.72" cy="0.45" r="0.6">
+      <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/>
+    </radialGradient>
+    <mask id="halftone"><rect width="1200" height="420" fill="url(#fade)"/></mask>
+    <clipPath id="panel"><rect x="8" y="8" width="1184" height="404" rx="6"/></clipPath>
+  </defs>
+  <g clip-path="url(#panel)">
+    <rect width="1200" height="420" fill="#f3e6c8"/>
+    <g fill="#f8d98f" opacity="0.55"><polygon points="860,190 1760,190 1757,268"/><polygon points="860,190 1746,346 1729,423"/><polygon points="860,190 1706,498 1676,570"/><polygon points="860,190 1639,640 1597,706"/><polygon points="860,190 1549,769 1496,826"/><polygon points="860,190 1439,879 1376,927"/><polygon points="860,190 1310,969 1240,1006"/><polygon points="860,190 1168,1036 1093,1059"/><polygon points="860,190 1016,1076 938,1087"/><polygon points="860,190 860,1090 782,1087"/><polygon points="860,190 704,1076 627,1059"/><polygon points="860,190 552,1036 480,1006"/><polygon points="860,190 410,969 344,927"/><polygon points="860,190 281,879 224,826"/><polygon points="860,190 171,769 123,706"/><polygon points="860,190 81,640 44,570"/><polygon points="860,190 14,498 -9,423"/><polygon points="860,190 -26,346 -37,268"/><polygon points="860,190 -40,190 -37,112"/><polygon points="860,190 -26,34 -9,-43"/><polygon points="860,190 14,-118 44,-190"/><polygon points="860,190 81,-260 123,-326"/><polygon points="860,190 171,-389 224,-446"/><polygon points="860,190 281,-499 344,-547"/><polygon points="860,190 410,-589 480,-626"/><polygon points="860,190 552,-656 627,-679"/><polygon points="860,190 704,-696 782,-707"/><polygon points="860,190 860,-710 938,-707"/><polygon points="860,190 1016,-696 1093,-679"/><polygon points="860,190 1168,-656 1240,-626"/><polygon points="860,190 1310,-589 1376,-547"/><polygon points="860,190 1439,-499 1496,-446"/><polygon points="860,190 1549,-389 1597,-326"/><polygon points="860,190 1639,-260 1676,-190"/><polygon points="860,190 1706,-118 1729,-43"/><polygon points="860,190 1746,34 1757,112"/></g>
+    <rect width="1200" height="420" fill="url(#dots)" mask="url(#halftone)"/>
+
+    <!-- Moon -->
+    <circle cx="360" cy="175" r="138" fill="#f7d774" stroke="#111" stroke-width="7"/>
+    <circle cx="300" cy="120" r="16" fill="#e8c35a"/><circle cx="420" cy="230" r="22" fill="#e8c35a"/><circle cx="405" cy="95" r="10" fill="#e8c35a"/>
+
+    <!-- Ground -->
+    <path d="M0,348 C120,332 220,356 360,344 C520,330 640,352 800,342 C960,332 1080,350 1200,340 L1200,420 L0,420 Z" fill="#5d6240" stroke="#111" stroke-width="7"/>
+    <path d="M40,375 l30,-6 M180,390 l40,-4 M520,380 l36,-5 M900,372 l44,-6 M1080,392 l30,-4" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Dead tree -->
+    <g fill="none" stroke="#111" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M62,346 C66,290 58,240 70,190" stroke-width="14"/>
+      <path d="M68,250 C90,236 104,214 112,192 M64,220 C46,206 36,184 34,160 M70,195 C78,172 74,150 84,128 M108,200 l16,-10 M40,170 l-14,-8" stroke-width="7"/>
+    </g>
+
+    <!-- Gravestone -->
+    <path d="M122,350 L122,292 Q122,260 162,260 Q202,260 202,292 L202,350 Z" fill="#b9b4a6" stroke="#111" stroke-width="6"/>
+    <text x="162" y="295" text-anchor="middle" font-family="Impact, 'Arial Black', sans-serif" font-size="18" fill="#111">R.I.P.</text>
+    <text x="162" y="318" text-anchor="middle" font-family="'Arial Black', Arial, sans-serif" font-size="11" font-weight="900" fill="#111">100%</text>
+    <text x="162" y="332" text-anchor="middle" font-family="'Arial Black', Arial, sans-serif" font-size="10" font-weight="900" fill="#111">COVERAGE</text>
+
+    <!-- Zombie shadow -->
+    <ellipse cx="320" cy="356" rx="95" ry="10" fill="#2f321f" opacity="0.6"/>
+
+    <!-- Back leg and back arm -->
+    <polyline points="300,280 284,318 272,350" fill="none" stroke="#111" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/><polyline points="300,280 284,318 272,350" fill="none" stroke="#4d3d30" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="272,350 248,354" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="272,350 248,354" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="340,206 396,194" fill="none" stroke="#111" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/><polyline points="340,206 396,194" fill="none" stroke="#6f87a3" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="396,194 446,188" fill="none" stroke="#111" stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/><polyline points="396,194 446,188" fill="none" stroke="#7f9a62" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="448,186 472,197" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="448,186 472,197" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="450,191 471,206" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="450,191 471,206" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="447,196 464,213" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="447,196 464,213" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="442,183 456,175" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="442,183 456,175" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Front leg -->
+    <polyline points="330,282 352,318 346,350" fill="none" stroke="#111" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/><polyline points="330,282 352,318 346,350" fill="none" stroke="#4d3d30" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="346,350 374,356" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="346,350 374,356" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M338,322 l10,6 l-4,8" fill="none" stroke="#111" stroke-width="3"/>
+
+    <!-- Torso: torn shirt -->
+    <path d="M278,194 C300,186 332,186 352,196 L364,282 L353,276 L345,290 L335,279 L323,294 L312,279 L300,292 L290,278 L278,288 L268,272 Z"
+          fill="#6f87a3" stroke="#111" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M300,222 l12,8 l-6,10 l-10,-4 Z M330,250 l10,4 l-4,9 l-9,-3 Z" fill="#7f9a62" stroke="#111" stroke-width="3"/>
+    <path d="M286,210 C292,240 290,262 296,280" fill="none" stroke="#4f6580" stroke-width="4"/>
+    <circle cx="340" cy="214" r="7" fill="#b3221a"/><circle cx="350" cy="226" r="3.5" fill="#b3221a"/><circle cx="330" cy="206" r="3" fill="#b3221a"/>
+
+    <!-- Neck and head -->
+    <path d="M300,176 L298,198 L324,198 L324,178 Z" fill="#7f9a62" stroke="#111" stroke-width="6"/>
+    <g transform="rotate(12 310 135)">
+      <path d="M270,95 C300,68 346,78 354,110 C362,142 352,172 326,182 C300,192 268,180 260,150 C254,126 258,106 270,95 Z"
+            fill="#a9c08a" stroke="#111" stroke-width="7"/>
+      <path d="M268,98 l-10,-16 M284,86 l-4,-18 M302,80 l4,-17 M320,82 l12,-12 M336,90 l16,-6" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+      <ellipse cx="300" cy="124" rx="15" ry="13" fill="#56703f"/>
+      <ellipse cx="334" cy="120" rx="13" ry="12" fill="#56703f"/>
+      <circle cx="300" cy="125" r="9" fill="#f4f1d8" stroke="#111" stroke-width="3"/><circle cx="303" cy="127" r="3" fill="#111"/>
+      <circle cx="334" cy="121" r="8" fill="#f4f1d8" stroke="#111" stroke-width="3"/><circle cx="337" cy="123" r="3" fill="#111"/>
+      <path d="M286,106 L312,112 M324,108 L346,104" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+      <path d="M318,132 l4,12 l-6,2" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round"/>
+      <path d="M296,156 L305,150 L312,158 L320,150 L328,157 L337,149 L340,163 C326,173 306,172 296,156 Z" fill="#3a1414" stroke="#111" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M305,152 l3,6 l3,-6 M320,152 l3,6 l3,-6" fill="#f4f1d8" stroke="none"/>
+      <path d="M268,136 L288,150 M272,135 l-4,6 M278,140 l-4,6 M284,145 l-4,6" stroke="#111" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="346" cy="150" r="4" fill="#b3221a"/>
+    </g>
+
+    <!-- Front arm -->
+    <polyline points="346,226 402,234" fill="none" stroke="#111" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/><polyline points="346,226 402,234" fill="none" stroke="#6f87a3" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="402,234 458,226" fill="none" stroke="#111" stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/><polyline points="402,234 458,226" fill="none" stroke="#a9c08a" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M396,222 l8,6 l-6,6 l8,6" fill="none" stroke="#111" stroke-width="3"/>
+    <polyline points="464,222 488,236" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="464,222 488,236" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="463,228 483,245" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="463,228 483,245" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="459,233 474,252" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="459,233 474,252" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="458,219 476,210" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><polyline points="458,219 476,210" fill="none" stroke="#a9c08a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Speech bubble -->
+    <path d="M30,30 L238,30 Q252,30 252,44 L252,104 Q252,118 238,118 L200,118 L262,150 L172,118 L44,118 Q30,118 30,104 L30,44 Q30,30 44,30 Z"
+          fill="#fff" stroke="#111" stroke-width="5" stroke-linejoin="round"/>
+    <g font-family="'Comic Sans MS', 'Comic Neue', 'Chalkboard SE', cursive" font-weight="700" fill="#111" text-anchor="middle">
+      <text x="141" y="60" font-size="22">BRAAAINS...</text>
+      <text x="141" y="84" font-size="16">I MEAN... UNTESTED</text>
+      <text x="141" y="105" font-size="16">BOUNDARY CONDITIONS</text>
+    </g>
+
+    <!-- Title -->
+    <g transform="rotate(-4 860 190)" font-family="Impact, 'Arial Black', 'Helvetica Neue', sans-serif" font-weight="900">
+      <text x="590" y="228" font-size="160" textLength="560" lengthAdjust="spacingAndGlyphs" fill="#111" transform="translate(9 9)">WALKER</text>
+      <g fill="#b3221a" stroke="#111" stroke-width="4">
+        <path d="M640,224 L640,246 Q640,256 646,256 Q652,256 652,246 L652,224 Z"/>
+        <path d="M778,224 L778,262 Q778,272 785,272 Q792,272 792,262 L792,224 Z"/>
+        <path d="M948,224 L948,240 Q948,248 953,248 Q958,248 958,240 L958,224 Z"/>
+        <path d="M1080,224 L1080,254 Q1080,264 1087,264 Q1094,264 1094,254 L1094,224 Z"/>
+      </g>
+      <text x="590" y="228" font-size="160" textLength="560" lengthAdjust="spacingAndGlyphs" fill="#b3221a" stroke="#111" stroke-width="7" paint-order="stroke" stroke-linejoin="round">WALKER</text>
+    </g>
+
+    <!-- Caption box -->
+    <g transform="rotate(-2 860 300)">
+      <rect x="604" y="276" width="520" height="52" fill="#111" transform="translate(6 6)"/>
+      <rect x="604" y="276" width="520" height="52" fill="#ffd23f" stroke="#111" stroke-width="5"/>
+      <text x="864" y="311" text-anchor="middle" font-family="'Arial Black', Impact, sans-serif" font-weight="900" font-size="22" textLength="486" lengthAdjust="spacingAndGlyphs" fill="#111">IF IT STILL WALKS, YOUR TESTS AREN'T DONE.</text>
+    </g>
+  </g>
+  <rect x="8" y="8" width="1184" height="404" rx="6" fill="none" stroke="#111" stroke-width="10"/>
+</svg>

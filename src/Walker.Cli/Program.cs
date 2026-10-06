@@ -56,7 +56,10 @@ try
     var runner = new ProcessRunner();
     var rootResult = await runner.RunAsync(new("git", ["rev-parse", "--show-toplevel"], cwd), CancellationToken.None);
     if (rootResult.ExitCode != 0) throw new ArgumentException("Run inside a Git repository.");
-    var root = rootResult.StandardOutput.Trim();
+    // Git prints forward slashes on Windows; normalise so path comparisons match .NET paths.
+    var root = Path.GetFullPath(rootResult.StandardOutput.Trim());
+    // Repair a source file left mutated by a previously killed run before discovery reads it.
+    if (await MutationJournal.RecoverAsync(root, CancellationToken.None) is { } recovered) Console.Error.WriteLine(recovered);
     var request = new VerificationRequest(root, config.Base ?? "HEAD~1", Path.GetFullPath(config.Project, cwd),
         tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude);
     using var cancelled = new CancellationTokenSource();
@@ -66,7 +69,9 @@ try
     try
     {
         var executor = new DotnetMutationExecutor(runner);
-        result = await new VerificationEngine(new GitChangeProvider(runner, new MsBuildSourceScope(runner)), new RoslynMutationDiscoverer(), executor, executor)
+        var scope = new MsBuildSourceScope(runner);
+        var discoverer = new RoslynMutationDiscoverer(async token => await scope.GetFilesAsync(request, token));
+        result = await new VerificationEngine(new GitChangeProvider(runner, scope), discoverer, executor, executor)
             .VerifyAsync(request, cancelled.Token);
     }
     finally { Console.CancelKeyPress -= handler; }

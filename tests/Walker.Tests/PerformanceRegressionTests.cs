@@ -85,11 +85,14 @@ public sealed class PerformanceRegressionTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("src/Generated/Code.cs\0")]
-    [InlineData("src/Code.Designer.cs\0")]
-    public async Task NoEligibleFilesSkipsMsBuildSourceEvaluation(string changedNames)
+    [InlineData("src/Generated/Code.cs")]
+    [InlineData("src/Code.Designer.cs")]
+    [InlineData("src/DeletionOnly.cs")]
+    public async Task NoEligibleFilesSkipsMsBuildSourceEvaluation(string changedName)
     {
-        var runner = new FakeRunner(request => new(0, request.Arguments[0] == "diff" ? changedNames : "abc123\n", "", 0));
+        var hunk = changedName == "src/DeletionOnly.cs" ? "@@ -3,2 +2,0 @@" : "@@ -1 +1 @@";
+        var patch = changedName.Length == 0 ? "" : $"diff --git a/{changedName} b/{changedName}\n--- a/{changedName}\n+++ b/{changedName}\n{hunk}\n-old\n+new\n";
+        var runner = new FakeRunner(request => new(0, request.Arguments.Contains("diff") ? patch : "abc123\n", "", 0));
         var changes = await new GitChangeProvider(runner, new ForbiddenScope()).GetChangesAsync(
             new(Path.GetTempPath(), "HEAD~1", "Code.csproj", ["Tests.csproj"]), default);
         Assert.Empty(changes);

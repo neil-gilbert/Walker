@@ -1,44 +1,72 @@
-# Walker
+<p align="center">
+  <img src="docs/assets/walker-banner.svg" alt="Comic-book banner: a zombie shambles in front of a full moon toward the word WALKER. Caption: If it still walks, your tests aren't done." width="100%">
+</p>
 
-Fast mutation verification for AI coding agents.
+# 🧟 Walker
 
-**If it still walks, your tests aren’t done.**
+> **If it still walks, your tests aren't done.**
 
-Your agent wrote the code.  
-Your tests passed.  
-Now see what survives.
+Your agent wrote the code.
+Your tests passed.
+You think you're safe.
 
-Walker creates targeted mutations in code changed by a coding agent and checks whether the tests can detect them. It is designed for fast verification inside agentic coding loops rather than full-project mutation scoring.
+**You're not safe.**
 
-Traditional mutation testing asks: **How effective is the test suite for this project?**
+Walker is fast, diff-aware mutation verification for AI coding agents. It goes into the code your agent just changed, turns small pieces of it into something *slightly wrong*, and sends that back at your tests. If the tests take it down, good. If it gets back up and keeps walking, there's a hole in your fence.
 
-Walker asks: **Do the tests actually verify the code my coding agent just changed?**
+---
+
+## 🩸 The outbreak
+
+Traditional mutation testing clears the whole map. It asks: *how effective is the test suite for this whole project?*
+
+Walker only checks the part of the fence that was just rebuilt. It asks:
+
+> **Do the tests actually verify the code my coding agent just changed?**
+
+It is built to run inside agentic coding loops: fast, bounded and adversarial. It is not for a repository-wide mutation score.
 
 ```text
-Agent changes code
-        ↓
-Build
-        ↓
-Tests
-        ↓
-Walker
-        ↓
-Targeted mutations
-        ↓
-Tests kill them?
-     ↙       ↘
-   YES        NO
-    ↓          ↓
-  Done       WALKER
-               ↓
-        Agent investigates
+   Agent changes code
+           ↓
+         Build
+           ↓
+         Tests  ✅  "we're fine, right?"
+           ↓
+   ┌───────────────┐
+   │   🧟 WALKER   │  ← reads the Git diff and raises the horde
+   └───────────────┘
+           ↓
+   Targeted mutations
+           ↓
+     Tests kill them?
+       ↙        ↘
+    YES          NO
+     ↓            ↓
+  🔒 SAFE     🧟 IT'S STILL WALKING
+                  ↓
+         Agent investigates
 ```
 
-Walker analyses the Git diff, mutates changed production code, prioritises high-value mutations, operates within configurable time and mutant budgets, and reports survivors to the coding agent. It is designed to complete in seconds where practical; the straightforward V1 build-and-test executor can take longer.
+Walker reads the Git diff, mutates only changed production code, sends the most dangerous mutations first, stays inside a time and mutant budget, and reports every survivor to the agent.
 
-**Walker is not trying to maximise a repository-wide mutation score. It is an adversarial verification step for agent-generated changes.**
+---
 
-A **Walker** is a mutant that survived the tests. **Killed** means the tests detected a mutation. **Horde** refers to the current mutation candidates. The theme is confined to documentation and human output; API concepts and JSON fields remain technical.
+## 📖 Field glossary
+
+| Survivor slang | What it actually means |
+| --- | --- |
+| **Horde** | All mutation candidates found in the changed code. |
+| **Walker** 🧟 | A mutant that **survived** your tests. Something changed and nobody noticed. |
+| **Killed** 🪓 | A test failed with the mutation in place. Headshot. |
+| **Hung** 🕸️ | The mutant got your tests stuck (usually an infinite loop) past the hang limit. It got caught in the wire, so it counts as detected. |
+| **Safe** 🔒 | Every selected mutant went down. Nothing is still walking. |
+
+The theme stays in the docs and the human-readable output. The APIs, the JSON fields and the exit codes stay plain and technical, so your agent never has to argue with a zombie.
+
+---
+
+## 🎒 Survival kit (quick start)
 
 ```bash
 dotnet build Walker.sln
@@ -52,13 +80,45 @@ dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll verify \
   --timeout 60 --max-mutants 20 --format json
 ```
 
-Use repeated `--tests` arguments for multiple test projects. `--format text` produces concise feedback; `--verbose` includes timings in text output. JSON always contains timings and uses `schemaVersion: 1`.
+- Repeat `--tests` to defend more than one test project.
+- `--format text` gives the short field report; `--verbose` adds timings.
+- JSON always includes timings and uses `schemaVersion: 1`.
 
-The reusable [agent skill](skills/walker-verification/SKILL.md) explains when to run the tool, how to choose scope, and how to investigate survivors. Copy its directory into your agent's skills directory (for Codex, `.agents/skills/walker-verification/`) to make it discoverable, or explicitly ask the agent to follow the file.
+### What a bad day looks like
 
-## Local/global tool
+```text
+WALKER
+Horde: 4 mutation candidates
+4 selected for verification
+4/4 executed
+2 KILLED
+2 WALKERS
+IT'S STILL WALKING.
 
-The CLI project is configured as a .NET tool with package ID `Walker.Cli`, title `Walker`, and command `walker`. These are provisional metadata, not claims that names are available on public feeds. No package is published; check naming and ownership before any publication.
+WALKER ec444dfa13bb5ea54068
+Payments/PaymentService.cs:6
+PaymentService.CanPurchase
+Original:
+    balance >= price
+Walker:
+    balance > price
+Your tests did not detect this behavioural change. Investigate the missing behavioural constraint.
+...
+Completed in 8.3s
+If it still walks, your tests aren't done.
+```
+
+Not one test checked a purchase where the balance is *exactly* equal to the price. That boundary is unguarded, and a walker went straight through it.
+
+### 🗺️ Teach your agent the rules
+
+The [agent skill](skills/walker-verification/SKILL.md) tells your agent when to run Walker, how to choose scope and how to investigate survivors. Copy its directory into your agent's skills directory (for Codex, `.agents/skills/walker-verification/`), or tell the agent to follow the file.
+
+---
+
+## 🏚️ Setting up camp (local/global tool)
+
+The CLI project is configured as a .NET tool with package ID `Walker.Cli`, title `Walker` and command `walker`. This metadata is provisional. It does not claim that these names are available on public feeds. No package is published; check naming and ownership before any publication.
 
 ```bash
 dotnet pack src/Walker.Cli -c Release -o artifacts
@@ -69,11 +129,13 @@ dotnet tool run walker -- verify --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj --format json
 ```
 
-For a global install, use the same trusted local package source with `--global`; the command is `walker verify`. Do not assume an unrelated public package is this implementation.
+For a global install, use the same trusted local package source with `--global`. The command is then `walker verify`. Do not trust a stranger at the gate: an unrelated public package with the same name is not this implementation.
 
-## Configuration
+---
 
-An optional `walker.json` in the current directory:
+## 🧭 Camp rules (configuration)
+
+Put an optional `walker.json` in the current directory:
 
 ```json
 {
@@ -86,53 +148,107 @@ An optional `walker.json` in the current directory:
 }
 ```
 
-CLI arguments override config; repeated tests/excludes replace their configured lists. Paths are relative to the current directory; exclusion globs match repository-relative paths. Unknown configuration fields and CLI options are errors.
+CLI arguments override the config. Repeated `--tests`/`--exclude` replace their configured lists. Paths are relative to the current directory; exclusion globs match repository-relative paths. Unknown configuration fields and CLI options are errors, because nobody gets into camp without being checked.
 
-## Behaviour and exit codes
+---
+
+## 🚨 How the night ended (exit codes)
 
 | Exit | Status | Meaning |
 | --- | --- | --- |
-| 0 | passed | All selected mutants were killed. |
-| 1 | failed | A completed verification has surviving mutants. |
-| 2 | error | Discovery, build, test, or infrastructure error. |
-| 3 | incomplete | Timeout, cancellation, skips, or no eligible expressions. |
+| 0 | `passed` | 🔒 All selected mutants were killed (or hung, which counts as detected). |
+| 1 | `failed` | 🧟 A completed verification has surviving walkers. |
+| 2 | `error` | 💥 Discovery, build, test or infrastructure error. The evidence cannot be trusted. |
+| 3 | `incomplete` | 🌒 Timeout, cancellation, skips or no eligible expressions. Safety was **not** established. |
 
-Errors take precedence over incomplete execution; incompleteness takes precedence over survivors. Inspect `results` even when verification was incomplete. Compilation errors are never kills. Test failures are classified using TRX counters, not a generic nonzero process exit. A run with no executed tests is an error.
+Errors take precedence over incomplete execution; incomplete takes precedence over survivors. Check `results` even when a run was incomplete: walkers found before nightfall are still real.
 
-Discovery uses the merge base from `git diff <base>...HEAD` semantics and compares it to the actual tracked working copy so staged/unstaged edits have correct current line numbers. Untracked source files are not discovered. Deleted-only lines do not authorize mutation of unchanged neighbouring expressions. MSBuild Compile-item evaluation limits candidates to the configured production project, including linked source. Generated files, test projects, bin/obj, Designer and source-generator output are excluded.
+- **Compilation errors are never kills.** A mutant that never compiled was never a threat.
+- Test failures come from TRX counters, not from a generic nonzero exit code.
+- A run with no executed tests is an error. An empty camp is not a defended camp.
+- A run with no eligible changed expressions is `incomplete`. No horde means no evidence.
 
-Roslyn discovers boundary, equality, boolean, logical, null-pattern and numeric arithmetic mutations only in expressions intersecting changed lines. Boolean constant returns are supported. Arithmetic requires known numeric operand types; analysis is per-file and conservatively skips unresolved operands. Invocation removal, numeric return constants, coverage selection and equivalent-mutant detection are deferred. Unusual operator overloads or project context can still produce a compile error; such results never pass verification.
+---
 
-Selection prioritizes boundary, equality, null handling, boolean logic, returns and arithmetic, then repository path/location/ID. All eligible expressions intersect changed lines. A maximum limits **selected** mutants; unselected candidates are counted as discovered, not budget-skipped selected mutants.
+## 🔦 How Walker hunts
 
-The budget includes discovery, baseline and execution. On expiry, no more mutants start; the running process tree is cancelled and source cleanup completes. Cleanup can exceed the budget slightly. Baseline build/tests run once before mutation because a pre-existing test failure must not be counted as a kill. V1 builds each selected mutation and runs configured test projects sequentially, stopping once a project confirms a test failure. Baseline builds restore dependencies once; mutant builds reuse the restore and standard compiler server. MSBuild still updates dependent assemblies so tests observe the mutated code. Baseline build metadata can prove that a compatible test-project build already includes production; Walker then uses that build instead of launching a redundant production build. Multi-target, runtime-specific, customized or unconfirmed references retain the separate build. Failed shared builds receive a production-only diagnostic build so compile errors remain distinct from test-project errors.
+### Tracking (Git discovery)
 
-The executor snapshots and restores exact working-copy bytes, including BOM/newlines and existing edits, in `finally`. It rejects stale source hashes. Run one verifier per working tree and avoid editing target files during execution. Graceful Ctrl+C is supported. Forced termination, host failure or simultaneous external edits cannot be guaranteed safe by in-process cleanup. Build outputs may still reflect the last mutant until a normal rebuild; source is restored.
+- Uses the merge base (`git diff <base>...HEAD` semantics) and compares it with the actual tracked working copy, so staged and unstaged edits have correct line numbers.
+- One diff covers every file, and rename detection is on: a renamed file only exposes the lines that really changed.
+- Untracked source files are not discovered.
+- Deleted-only lines do not authorize mutation of unchanged neighbouring expressions.
+- MSBuild Compile-item evaluation limits candidates to the configured production project, including linked source.
+- Generated files, test projects, `bin`/`obj`, Designer files and source-generator output are excluded. Walker does not waste arrows on corpses.
 
-## Agent interpretation
+### Raising the horde (Roslyn discovery)
 
-A surviving Walker may indicate:
+- Mutates boundary, equality, boolean, logical, null-pattern and numeric arithmetic expressions, plus boolean constant returns, **only** where they intersect changed lines.
+- Arithmetic needs known numeric operand types. All changed files share one compilation together with the project's other Compile items and the SDK implicit usings. Operands that still cannot be resolved (for example package types) are skipped and counted in `unresolvedArithmetic`.
+- Invocation removal, numeric return constants, coverage-based selection and equivalent-mutant detection are not implemented yet.
+- Unusual operator overloads or project context can still produce a compile error. Such results never pass verification.
+
+### Choosing targets (selection)
+
+- The most dangerous first: boundary, equality, null handling, boolean logic, returns, then arithmetic. After that, repository path, location and ID.
+- Selection rotates across (file, operator) groups, so one dense file cannot take the whole budget.
+- `--max-mutants` limits **selected** mutants. Candidates that are not selected count as discovered, not as skipped.
+
+### Before dark (budgets and timeouts)
+
+- The `--timeout` budget covers discovery, baseline and execution. When it runs out, no new mutants start, the running process tree is stopped and source cleanup finishes. Cleanup can go slightly past the budget.
+- Each mutant also has a **hang limit** of 3× the baseline test-project build and test time plus 5 seconds. A mutant that goes past it (for example an infinite loop) is `Hung`: it counts as detected and the hunt continues. Only the global budget makes a run incomplete.
+
+### Fighting (execution)
+
+- The baseline build and tests run once before any mutation. A test that was already failing must never count as a kill.
+- Each mutant needs one `dotnet test --no-restore`, which rebuilds the affected graph and runs the tests. Projects run in sequence, and Walker stops at the first project that confirms a failure.
+- Baseline build metadata can prove that a compatible test-project build already includes production; Walker then skips the separate production build. Multi-target, runtime-specific, customized or unconfirmed references keep the separate build.
+- If a mutant run fails without results, a production-only build separates `CompileError` from `TestError`.
+- Analyzers do not run in Walker's builds (`-p:RunAnalyzers=false`) because they do not change behaviour. Source generators still run.
+
+### Burying the bodies (source restoration)
+
+- Walker snapshots the exact working-copy bytes (BOM, newlines and your own uncommitted edits) and restores them in `finally`. It refuses to apply a mutation to source that changed after discovery.
+- **If Walker is killed while a mutation is applied**, a restore journal (`.git/walker-restore.json`, or the temporary directory when `.git` is not a directory) lets the next run restore the original bytes before discovery. Walker refuses to overwrite a file that changed after the interruption, and tells you what to inspect.
+- Run one verifier per working tree and do not edit target files while it runs. Graceful Ctrl+C is supported. Build outputs can still contain the last mutant until a normal rebuild; the source is always restored.
+
+---
+
+## 🧠 When a walker gets through
+
+**Don't panic. Don't start swinging at production code.**
+
+A surviving walker can mean:
 
 1. Missing test coverage.
 2. A weak assertion.
 3. An untested boundary condition.
-4. An equivalent mutation.
+4. An equivalent mutation (it only *looks* like a walker).
 5. Intentionally unspecified behaviour.
 6. Incorrect production behaviour.
 
-The agent should determine which applies. A surviving Walker does **not** necessarily mean production code should change. Never instruct the agent simply to kill the mutant. Record accepted/equivalent survivors externally with their ID and rationale; V1 does not silently suppress them or convert their exit code to success.
+The agent must find out which one it is. A surviving walker does **not** necessarily mean production code should change. **Never tell the agent simply to "kill the mutant".** That is how good code gets hurt. Record accepted or equivalent survivors outside Walker with their ID and rationale. V1 does not silently suppress them or change their exit code to success.
 
-## Architecture and tests
+---
 
-- `Walker.Core`: typed contracts, orchestration, deterministic selection, budget and statuses; no Roslyn, Git or process dependencies.
-- `Walker.Git`: change discovery and default exclusions.
-- `Walker.Roslyn`: changed-expression syntax analysis and stable mutation IDs.
-- `Walker.Execution`: process lifecycle, MSBuild source scope, baseline and reversible sequential execution.
-- `Walker.Cli`: configuration, command arguments, JSON/text reporting and tool packaging.
-- `tests/Walker.Tests`: mutation discovery, selection, statuses, real Git discovery, process cancellation, restoration under failures/cancellation, and a real CLI boundary workflow.
+## 🏰 The camp (architecture)
 
-The integration test creates an isolated Git repository: changing `balance > price` to `balance >= price` produces a survivor and exit 1 with weak tests, then a new equality test kills it and yields exit 0. It verifies exact dirty source restoration after both runs.
+| Building | Job |
+| --- | --- |
+| `Walker.Core` | Typed contracts, orchestration, deterministic selection, budgets and statuses. No Roslyn, Git or process dependencies. |
+| `Walker.Git` | Change discovery and default exclusions. The lookouts. |
+| `Walker.Roslyn` | Changed-expression syntax analysis and stable mutation IDs. Raises the horde. |
+| `Walker.Execution` | Process lifecycle, MSBuild source scope, baseline, reversible execution and the restore journal. The front line. |
+| `Walker.Cli` | Configuration, arguments, JSON/text reports and tool packaging. The radio. |
+| `tests/Walker.Tests` | Discovery, selection, statuses, real Git discovery, renames, process cancellation, hang detection, crash recovery, restoration and a real CLI workflow. |
 
-The [performance review](docs/performance.md) records measured costs and optimizations.
+The integration test builds an isolated Git repository. Changing `balance > price` to `balance >= price` lets a walker through with weak tests (exit 1). A new equality test then kills it (exit 0). Both runs must restore the dirty source byte for byte.
 
-The [benchmark script](scripts/benchmark.py) runs the example against this verifier and Stryker.NET in a temporary repository. It records wall time, executed mutants and survivor results. Results are specific to the change/fixture and do not establish a general speed claim. See [benchmark guidance](docs/benchmark.md).
+## ⏱️ How fast can you run?
+
+The [performance review](docs/performance.md) records measured costs and optimizations. The [benchmark script](scripts/benchmark.py) runs the example against this verifier and Stryker.NET in a temporary repository. It records wall time, executed mutants and survivors. Results apply to that change and fixture only; they are not a general speed claim. See the [benchmark guidance](docs/benchmark.md).
+
+---
+
+<sub>Walker is a tribute to zombie fiction and is not affiliated with *The Walking Dead* or its owners. No tests were harmed. Several were found to be dead inside.</sub>

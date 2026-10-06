@@ -15,6 +15,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
         var results = new List<MutationResult>();
         var timings = new PhaseTimings();
         string? error = null;
+        var unresolved = 0;
         try
         {
             var phase = Stopwatch.StartNew();
@@ -22,6 +23,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             timings = timings with { GitMs = phase.ElapsedMilliseconds };
             var found = await discovery.DiscoverAsync(request.Root, files, token);
             mutants = found.Mutants;
+            unresolved = found.UnresolvedArithmetic;
             timings = timings with { ParsingMs = found.ParsingMs, DiscoveryMs = found.DiscoveryMs };
             selected = Select(mutants, request.MaxMutants);
             if (selected.Length > 0)
@@ -35,6 +37,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                     token.ThrowIfCancellationRequested();
                     var result = await executor.ExecuteAsync(mutant, context, token);
                     results.Add(result);
+                    // TimedOut means the global budget expired; a per-mutant Hung result does not stop the run.
                     if (result.Outcome == MutationOutcome.TimedOut) break;
                 }
             }
@@ -52,9 +55,26 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             error ??= "Verification budget exhausted or cancelled; available results are incomplete.";
         if (selected.Length == 0 && error == null && !token.IsCancellationRequested)
             error = "No eligible changed expressions; verification provides no mutation evidence.";
-        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error);
+        return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved);
     }
-    public static Mutant[] Select(IEnumerable<Mutant> mutants, int maximum) => mutants
-        .OrderBy(m => m.Operator).ThenBy(m => m.File, StringComparer.Ordinal).ThenBy(m => m.Line)
-        .ThenBy(m => m.SpanStart).ThenBy(m => m.Id, StringComparer.Ordinal).Take(maximum).ToArray();
+    // Priority order, then round-robin across (file, operator) groups so one dense file or
+    // operator cannot consume the whole budget.
+    public static Mutant[] Select(IEnumerable<Mutant> mutants, int maximum)
+    {
+        var groups = mutants
+            .OrderBy(m => m.Operator).ThenBy(m => m.File, StringComparer.Ordinal).ThenBy(m => m.Line)
+            .ThenBy(m => m.SpanStart).ThenBy(m => m.Id, StringComparer.Ordinal)
+            .GroupBy(m => (m.File, m.Operator)).Select(g => new Queue<Mutant>(g)).ToList();
+        var selected = new List<Mutant>();
+        while (selected.Count < maximum && groups.Count > 0)
+        {
+            foreach (var group in groups)
+            {
+                if (selected.Count == maximum) break;
+                selected.Add(group.Dequeue());
+            }
+            groups.RemoveAll(g => g.Count == 0);
+        }
+        return selected.ToArray();
+    }
 }

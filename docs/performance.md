@@ -1,6 +1,28 @@
 # Performance review — 2026-10-06
 
-## Second optimization pass — current result
+## Third optimization pass — current result
+
+The same four-mutant Payments sample now completes in **8.325s median**, compared with **10.449s** for the preceding implementation measured alongside it: a **20.3% reduction**. The summed mutation phase fell from about 7.1s to 5.0s per run (about 30%). All six runs had identical mutant IDs and outcomes (four executed, two killed, two survived).
+
+| Measurement | Previous implementation | This pass |
+| --- | ---: | ---: |
+| Run 1 wall time | 10.342s | 8.206s |
+| Run 2 wall time | 10.642s | 8.298s |
+| Run 3 wall time | 10.271s | 8.194s |
+| Median wall time | 10.449s | 8.325s |
+
+Measured with `scripts/benchmark.py --skip-stryker --compare-cli <snapshot> --repetitions 3`, .NET SDK 10.0.203, macOS arm64, warmed fixture. These are local measurements, not guarantees.
+
+Changes:
+
+- **One `dotnet test` per mutant.** Mutant runs no longer use a separate `dotnet build` and `dotnet test --no-build`. One `dotnet test --no-restore` builds the graph and runs the tests, so each mutant needs one CLI and MSBuild startup fewer. If that run fails without a TRX report, a separate production build still separates `CompileError` from `TestError`. Per-mutant `buildMs` now covers only explicit production builds; the shared build time is in `testMs`.
+- **Analyzers are not run** (`-p:RunAnalyzers=false`) in baseline and mutant builds. Analyzers do not change compiled behaviour, and source generators still run. On this small fixture the gain is small; on analyzer-heavy projects it can be large.
+- **One Git diff for all files** instead of one for each file. This also fixes rename handling: a per-file pathspec reported a renamed file as entirely new.
+- **MSBuild Compile-item evaluation runs at the same time as** the dirty-file Git query, and its result is cached for Roslyn type context.
+- TRX reports are streamed with `XmlReader`. Process output keeps its tail in a ring buffer. Build metadata JSON is parsed once. `DOTNET_CLI_TELEMETRY_OPTOUT`/`DOTNET_NOLOGO` are set unless the user already set them.
+- Not changed: reducing Roslyn metadata references to the core library. Measured, it saved only about 20–50 ms and would leave more arithmetic operand types unresolved.
+
+## Second optimization pass — historical measurements
 
 A guarded shared-build path reduces the same four-mutant sample to **12.107s median**, compared with **15.142s** for the preceding implementation measured alongside it: another **20.0% reduction**. All six runs had identical mutant IDs and outcomes (four executed, two killed, two survived) and restored the exact source bytes.
 

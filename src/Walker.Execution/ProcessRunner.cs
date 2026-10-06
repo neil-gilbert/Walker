@@ -9,6 +9,9 @@ public sealed class ProcessRunner : IProcessRunner
         var info = new ProcessStartInfo(request.FileName) { WorkingDirectory = request.WorkingDirectory,
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var argument in request.Arguments) info.ArgumentList.Add(argument);
+        // Skip per-invocation telemetry and banners; respect explicit user settings.
+        foreach (var name in new[] { "DOTNET_CLI_TELEMETRY_OPTOUT", "DOTNET_NOLOGO", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE" })
+            if (!info.Environment.ContainsKey(name)) info.Environment[name] = "1";
         using var process = new Process { StartInfo = info };
         using var drainCancellation = new CancellationTokenSource();
         var timer = Stopwatch.StartNew();
@@ -36,19 +39,33 @@ public sealed class ProcessRunner : IProcessRunner
     }
     private static async Task<(string Text, bool Truncated)> DrainAsync(StreamReader reader, int limit, CancellationToken token)
     {
+        // Keep only the last `limit` characters in a ring buffer: no per-chunk copying of retained output.
         var buffer = new char[4096];
-        var tail = new System.Text.StringBuilder();
+        var ring = new char[limit];
+        long written = 0;
         var truncated = false;
         try
         {
             int read;
             while ((read = await reader.ReadAsync(buffer.AsMemory(), token)) != 0)
             {
-                tail.Append(buffer, 0, read);
-                if (tail.Length > limit) { truncated = true; tail.Remove(0, tail.Length - limit); }
+                Append(ring, written, buffer.AsSpan(0, read));
+                written += read;
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { truncated = true; }
-        return (tail.ToString(), truncated);
+        if (written <= limit) return (new string(ring, 0, (int)written), truncated);
+        var head = (int)(written % limit);
+        return (string.Concat(ring.AsSpan(head), ring.AsSpan(0, head)), true);
+    }
+    private static void Append(char[] ring, long written, ReadOnlySpan<char> chunk)
+    {
+        var limit = ring.Length;
+        var position = written + chunk.Length;
+        if (chunk.Length > limit) chunk = chunk[^limit..];
+        var start = (int)((position - chunk.Length) % limit);
+        var first = Math.Min(chunk.Length, limit - start);
+        chunk[..first].CopyTo(ring.AsSpan(start));
+        chunk[first..].CopyTo(ring);
     }
 }

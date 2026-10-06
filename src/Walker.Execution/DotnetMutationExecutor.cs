@@ -1,12 +1,19 @@
 using System.Diagnostics;
 using System.Text;
-using System.Xml.Linq;
+using System.Xml;
 using Walker.Core;
 namespace Walker.Execution;
-public sealed class DotnetMutationExecutor(IProcessRunner runner) : IMutationExecutor, IBaselineVerifier
+public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hangAllowance = null) : IMutationExecutor, IBaselineVerifier
 {
+    // Analyzers cannot change compiled behaviour; skipping them shortens every build. Source generators still run.
+    private static readonly string[] BuildProperties = ["-p:RunAnalyzers=false"];
+    private const int HangFactor = 3;
+    private readonly TimeSpan allowance = hangAllowance ?? TimeSpan.FromSeconds(5);
     private BuildCoverage? buildCoverage;
     private bool baselinePassed;
+    private long baselineTestMs;
+    // A mutant whose build and tests take far longer than the baseline is treated as hung (e.g. an infinite loop).
+    private TimeSpan HangLimit => TimeSpan.FromMilliseconds(HangFactor * baselineTestMs) + allowance;
 
     public async Task VerifyAsync(VerificationRequest request, CancellationToken cancellationToken)
     {
@@ -17,6 +24,7 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner) : IMutationExe
         buildCoverage = new(request.Root, request.Project, build.OutputTruncated ? "" : build.StandardOutput);
         var tests = await RunTests(new(request.Tests), request.Root, cancellationToken);
         if (tests.Outcome != MutationOutcome.Survived) throw new InvalidOperationException("Baseline tests failed or could not run: " + tests.Detail);
+        baselineTestMs = tests.BuildMs + tests.TestMs;
         baselinePassed = true;
     }
     public async Task<MutationResult> ExecuteAsync(Walker.Core.Mutant mutant, VerificationContext context, CancellationToken cancellationToken)
@@ -36,9 +44,12 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner) : IMutationExe
         var hasPreamble = preamble.Length > 0 && bytes.AsSpan().StartsWith(preamble);
         if (hasPreamble) encoded = [..preamble, ..encoded];
         long buildMs = 0, testMs = 0;
+        var journaled = false;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            await MutationJournal.WriteAsync(context.Request.Root, path, bytes, encoded);
+            journaled = true;
             await File.WriteAllBytesAsync(path, encoded, cancellationToken);
             var selection = await context.TestSelector.SelectTestsAsync(mutant, cancellationToken);
             var covered = baselinePassed && selection.Projects.Count > 0
@@ -49,8 +60,19 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner) : IMutationExe
                 buildMs += build.DurationMs;
                 if (build.ExitCode != 0) return new(mutant, MutationOutcome.CompileError, timer.ElapsedMilliseconds, buildMs, Detail: Diagnostic(build));
             }
-            var tests = await RunTests(selection, context.Request.Root, cancellationToken, baseline: false,
-                classifyBuildFailureFor: covered ? context.Request.Project : null);
+            using var hang = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if (baselinePassed) hang.CancelAfter(HangLimit);
+            (MutationOutcome Outcome, long BuildMs, long TestMs, string? Detail) tests;
+            try
+            {
+                tests = await RunTests(selection, context.Request.Root, hang.Token, baseline: false,
+                    classifyBuildFailureFor: covered ? context.Request.Project : null);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && hang.IsCancellationRequested)
+            {
+                return new(mutant, MutationOutcome.Hung, timer.ElapsedMilliseconds, buildMs, timer.ElapsedMilliseconds - buildMs,
+                    $"Build and tests exceeded the hang limit ({HangLimit.TotalSeconds:F1}s, {HangFactor}x baseline); the change was detected.");
+            }
             buildMs += tests.BuildMs;
             testMs = tests.TestMs;
             return new(mutant, tests.Outcome, timer.ElapsedMilliseconds, buildMs, testMs, tests.Detail,
@@ -62,11 +84,12 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner) : IMutationExe
         {
             // Cleanup is deliberately independent of the cancelled verification token.
             await File.WriteAllBytesAsync(path, bytes, CancellationToken.None);
+            if (journaled) MutationJournal.Clear(context.Request.Root);
         }
     }
     private Task<ProcessResult> Build(string project, string root, CancellationToken token, bool restore = true, bool observe = false)
     {
-        var args = new List<string> { "build", project, "--nologo", "--verbosity", "quiet" };
+        List<string> args = ["build", project, "--nologo", "--verbosity", "quiet", .. BuildProperties];
         if (!restore) args.Add("--no-restore");
         if (observe)
         {
@@ -84,56 +107,79 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner) : IMutationExe
         
         foreach (var project in selection.Projects)
         {
-            // Baseline builds every dependency once. A mutant changes only production source:
-            // reuse restored packages; let MSBuild refresh any affected dependent assemblies.
-            var build = await Build(project, root, token, restore: baseline, observe: baseline);
-            buildMs += build.DurationMs;
-            if (build.ExitCode != 0)
+            if (baseline)
             {
-                // The test build includes production on the fast path. Diagnose only a failed
-                // build with a separate production build so CompileError/TestError remain exact.
-                if (classifyBuildFailureFor != null)
-                {
-                    var production = await Build(classifyBuildFailureFor, root, token, restore: false);
-                    buildMs += production.DurationMs;
-                    if (production.ExitCode != 0) return (MutationOutcome.CompileError, buildMs, testMs, Diagnostic(production));
-                }
-                return (MutationOutcome.TestError, buildMs, testMs, "Test project build failed: " + Diagnostic(build));
+                // Baseline builds every dependency once and records reference metadata for build sharing.
+                var build = await Build(project, root, token, observe: true);
+                buildMs += build.DurationMs;
+                if (build.ExitCode != 0) return (MutationOutcome.TestError, buildMs, testMs, "Test project build failed: " + Diagnostic(build));
+                if (!build.OutputTruncated) buildCoverage?.ObserveTestBuild(project, build.StandardOutput);
             }
-            if (baseline && !build.OutputTruncated) buildCoverage?.ObserveTestBuild(project, build.StandardOutput);
             var directory = Path.Combine(Path.GetTempPath(), "walker-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             try
             {
-                var args = new List<string> { "test", project, "--no-build", "--no-restore", "--nologo", "--verbosity", "quiet",
-                    "--logger", "trx", "--results-directory", directory };
+                // A mutant changes only production source: reuse restored packages and let one
+                // `dotnet test` invocation refresh affected assemblies and run the tests.
+                List<string> args = ["test", project, "--no-restore", "--nologo", "--verbosity", "quiet",
+                    "--logger", "trx", "--results-directory", directory, .. BuildProperties];
+                if (baseline) args.Add("--no-build");
                 if (selection.Filter != null) args.AddRange(["--filter", selection.Filter]);
                 var run = await runner.RunAsync(new("dotnet", args, root), token);
                 testMs += run.DurationMs;
                 var reports = Directory.GetFiles(directory, "*.trx", SearchOption.AllDirectories);
-                if (reports.Length == 0) return (MutationOutcome.TestError, buildMs, testMs, "Test runner produced no TRX results: " + Diagnostic(run));
+                if (reports.Length == 0)
+                {
+                    if (baseline || run.ExitCode == 0) return (MutationOutcome.TestError, buildMs, testMs, "Test runner produced no TRX results: " + Diagnostic(run));
+                    // The test build includes production on the fast path. Diagnose only a failed
+                    // run with a separate production build so CompileError/TestError remain exact.
+                    if (classifyBuildFailureFor != null)
+                    {
+                        var production = await Build(classifyBuildFailureFor, root, token, restore: false);
+                        buildMs += production.DurationMs;
+                        if (production.ExitCode != 0) return (MutationOutcome.CompileError, buildMs, testMs, Diagnostic(production));
+                    }
+                    return (MutationOutcome.TestError, buildMs, testMs, "Test project build or test run failed without results: " + Diagnostic(run));
+                }
                 var total = 0; var failed = 0;
                 foreach (var report in reports)
                 {
-                    var document = XDocument.Load(report);
-                    var counters = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "Counters");
-                    if (counters == null) return (MutationOutcome.TestError, buildMs, testMs, "Malformed test report.");
-                    var executed = (int?)counters.Attribute("executed") ?? 0;
-                    var failures = (int?)counters.Attribute("failed") ?? 0;
-                    var passed = (int?)counters.Attribute("passed") ?? 0;
-                    if (executed != passed + failures || counters.Attributes().Any(a => (a.Name.LocalName is "error" or "timeout" or "aborted") && int.TryParse(a.Value, out var count) && count > 0)
-                        || document.Descendants().Any(e => e.Name.LocalName == "ResultSummary" && ((string?)e.Attribute("outcome") is "Aborted" or "Error")))
-                        return (MutationOutcome.TestError, buildMs, testMs, "Test execution aborted or reported infrastructure errors.");
-                    total += executed; failed += failures;
+                    var counters = ReadReport(report);
+                    if (counters.Error != null) return (MutationOutcome.TestError, buildMs, testMs, counters.Error);
+                    total += counters.Executed; failed += counters.Failed;
                 }
                 if (total == 0 || (run.ExitCode != 0 && failed == 0) || (run.ExitCode == 0 && failed > 0))
                     return (MutationOutcome.TestError, buildMs, testMs, "No executed tests or inconsistent runner results: " + Diagnostic(run));
                 // One confirmed test failure is sufficient evidence; baseline validated every project.
                 if (failed > 0) return (MutationOutcome.Killed, buildMs, testMs, null);
             }
-            finally { Directory.Delete(directory, recursive: true); }
+            finally
+            {
+                // A lingering test host can lock results (mainly on Windows); never let cleanup replace the outcome.
+                try { Directory.Delete(directory, recursive: true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
         }
         return (MutationOutcome.Survived, buildMs, testMs, null);
+    }
+    // Stream the report: only ResultSummary/Counters are needed, and Results can be large.
+    private static (int Executed, int Failed, string? Error) ReadReport(string path)
+    {
+        using var reader = XmlReader.Create(path, new XmlReaderSettings { IgnoreComments = true, IgnoreWhitespace = true });
+        (int Executed, int Failed)? counters = null;
+        while (reader.Read())
+        {
+            if (reader.NodeType != XmlNodeType.Element) continue;
+            if (reader.LocalName == "ResultSummary" && reader.GetAttribute("outcome") is "Aborted" or "Error")
+                return (0, 0, "Test execution aborted or reported infrastructure errors.");
+            if (reader.LocalName != "Counters" || counters != null) continue;
+            int Count(string name) => int.TryParse(reader.GetAttribute(name), out var value) ? value : 0;
+            var executed = Count("executed"); var failures = Count("failed");
+            if (executed != Count("passed") + failures || Count("error") > 0 || Count("timeout") > 0 || Count("aborted") > 0)
+                return (0, 0, "Test execution aborted or reported infrastructure errors.");
+            counters = (executed, failures);
+        }
+        return counters is { } found ? (found.Executed, found.Failed, null) : (0, 0, "Malformed test report.");
     }
     private static string Diagnostic(ProcessResult result)
     {
