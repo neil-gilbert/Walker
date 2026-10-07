@@ -20,6 +20,11 @@ should not be directly combined with the older worker-only comparison below.
 See [the comparison report](stryker-comparison.md) for individual timings,
 mutation scope, memory, validation and reproduction commands. These small
 fixtures establish a remaining performance gap, not a general project ranking.
+The [subsequent diagnosis](walker-speed-diagnosis.md) shows that Stryker packs
+forty candidates into two coverage-guided test runs, while Walker launches
+twenty separate DLL test commands. Disabling mixing removes the observed lead;
+the control retains all outcomes. Walker also pays repeated MSBuild queries and
+ordinary/ID-zero baseline validation before dispatch.
 
 ## Isolated mutation workers — 2026-10-07
 

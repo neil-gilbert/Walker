@@ -47,7 +47,11 @@ Median sampled peak process-tree RSS:
 | Boundaries, switch / 2 | 756.8 MiB | 529.7 MiB |
 
 The remaining gap warrants profiling test-host startup and isolation/preparation
-before implementing another optimisation. Walker's switching series spends a
+before implementing another optimisation. The follow-up
+[speed diagnosis](walker-speed-diagnosis.md) attributes the main fixture advantage
+to Stryker packing forty mutations into two coverage-guided test runs; Walker
+still performs twenty runs. Disabling mixing removes Stryker's lead in the
+diagnostic control, with unchanged mutation outcomes. Walker's switching series spends a
 median **2.285s** on its baseline and **5.808s** on preparation, then starts fresh
 test hosts for mutation attempts. These phase costs are included above. This
 comparison identifies a gap; it does not isolate the cost of each architectural
@@ -80,7 +84,8 @@ comparison remains necessary before making a general speed claim.
   source line, replacement and outcome. The complete mutation sets still differ.
 - The boundary fixture removes the `FreshHost` static-counter assertion from
   **both disposable test copies**. It checks Walker's process lifecycle, not
-  production behaviour, and would penalise Stryker's normal host reuse. All
+  production behaviour, and is excluded to keep the benchmark focused on the
+  production assertions. This is not evidence about Stryker's host-reuse policy. All
   twenty equality tests remain. Repository examples are unchanged; neither
   fixture introduces artificial delays.
 - The harness checks all production/test C# hashes after both tools. It rejects
@@ -127,6 +132,8 @@ python3 scripts/benchmark_stryker.py \
 `--dotnet` also controls child `PATH` and `DOTNET_ROOT`. Substitute another SDK
 installation consistently for both tools when reproducing on another machine.
 Use a fresh output directory: the harness refuses to overwrite an old series.
+New runs preserve a complete hashed CLI snapshot under `walker-cli/`, outside
+timing, so later repository builds cannot replace the measured assemblies.
 
 Each `pair-N` contains warm test logs, both process logs, both full JSON reports
 and `common-mutations.json`. `summary.json` records commands, SDK/runtime/tool

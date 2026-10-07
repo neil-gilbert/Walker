@@ -59,6 +59,11 @@ def source_hashes(work):
             if not {'bin', 'obj', 'StrykerOutput', 'stryker-output'}.intersection(path.parts)}
 
 
+def binary_hashes(directory):
+    return {str(path.relative_to(directory)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(directory.rglob('*')) if path.is_file()}
+
+
 def prepare(repo, work, fixture, env, timeout):
     payments = fixture == 'payments'
     shutil.copytree(repo / 'examples' / ('Payments' if payments else 'PreparedMutants'), work,
@@ -110,6 +115,8 @@ def main():
     parser.add_argument('--mutant-mode', choices=['source', 'switch'], default='source')
     parser.add_argument('--workers', type=int, choices=[1, 2], default=1)
     parser.add_argument('--stryker-concurrency', type=int, default=1)
+    parser.add_argument('--disable-stryker-mixing', action='store_true',
+                        help='Diagnostic control: run Stryker mutations in separate test runs')
     parser.add_argument('--repetitions', type=int, default=3)
     parser.add_argument('--timeout', type=int, default=120)
     parser.add_argument('--measure-memory', action='store_true')
@@ -123,12 +130,23 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     # Never accept stale reports or append a new benchmark to old results.
-    if (output / 'summary.json').exists() or any(output.glob('pair-*')):
+    if (output / 'summary.json').exists() or (output / 'walker-cli').exists() or any(output.glob('pair-*')):
         parser.error('output already contains results; choose a fresh directory')
     dotnet, cli, stryker = (path.resolve() for path in (args.dotnet, args.cli, args.stryker))
     for path in (dotnet, cli, stryker):
         if not path.is_file():
             parser.error(f'Missing executable: {path}')
+    # A concurrent build can replace any dependency between repetitions. Freeze
+    # the entire output generation once, outside timing, and verify the copy.
+    source_directory = cli.parent
+    if output == source_directory or source_directory in output.parents:
+        parser.error('output must not be inside the CLI directory')
+    binary_manifest = binary_hashes(source_directory)
+    snapshot = output / 'walker-cli'
+    shutil.copytree(source_directory, snapshot)
+    if binary_hashes(snapshot) != binary_manifest or binary_hashes(source_directory) != binary_manifest:
+        raise RuntimeError('Walker binaries changed while snapshotting; use a stable CLI directory')
+    cli = snapshot / cli.name
     env = dict(os.environ, DOTNET_ROOT=str(dotnet.parent),
                PATH=str(dotnet.parent) + os.pathsep + os.environ.get('PATH', ''),
                DOTNET_CLI_TELEMETRY_OPTOUT='1', DOTNET_NOLOGO='1',
@@ -138,6 +156,7 @@ def main():
                'policy': {'separateFreshReposPerToolAndPair': True,
                           'restoreAndBaselineWarmedOutsideTiming': True,
                           'toolBaselineAndPreparationIncluded': True,
+                          'walkerBinarySnapshotOutsideTiming': True,
                           'bothUseDiff': 'HEAD~1 (resolved to parent SHA for Stryker)',
                           'mutationSetsIdentical': False,
                           'lifecycleAssertionRemovedForBoth': args.fixture == 'boundaries',
@@ -148,10 +167,13 @@ def main():
                                'runtimes': checked([str(dotnet), '--list-runtimes'], repo, env, 30)[1].strip(),
                                'walkerCommit': checked(['git', 'rev-parse', 'HEAD'], repo, env, 30)[1].strip(),
                                'walkerCliSha256': hashlib.sha256(cli.read_bytes()).hexdigest(),
+                               'walkerBinarySourceDirectory': str(source_directory),
+                               'walkerBinarySnapshotHashes': binary_manifest,
                                'strykerTool': checked([str(dotnet), 'tool', 'list', '--tool-path',
                                                       str(stryker.parent)], repo, env, 30)[1].strip()},
                'walker': {'mutantMode': args.mutant_mode, 'workersRequested': args.workers, 'runs': []},
-               'stryker': {'concurrency': args.stryker_concurrency, 'runs': []}}
+               'stryker': {'concurrency': args.stryker_concurrency,
+                           'disableMixMutants': args.disable_stryker_mixing, 'runs': []}}
     signatures = {}
     for repetition in range(1, args.repetitions + 1):
         order = ['walker', 'stryker'] if repetition % 2 else ['stryker', 'walker']
@@ -177,6 +199,11 @@ def main():
                                '--workers', str(args.workers), '--format', 'json']
                     cwd = work
                 else:
+                    if args.disable_stryker_mixing:
+                        config_path = work / Path(tests).parent / 'stryker-config.json'
+                        config = json.loads(config_path.read_text())
+                        config['stryker-config']['disable-mix-mutants'] = True
+                        config_path.write_text(json.dumps(config))
                     parent = checked(['git', 'rev-parse', 'HEAD~1'], work, env, 30)[1].strip()
                     command = [str(stryker), f'--since:{parent}', '--concurrency',
                                str(args.stryker_concurrency), '--skip-version-check',
@@ -253,6 +280,8 @@ def main():
                 common.append({'file': key[0], 'line': key[1], 'replacement': key[2], 'outcome': row['outcome']})
             (pair_output / 'common-mutations.json').write_text(json.dumps(common, indent=2))
             summary['commonMutations'] = common
+        if binary_hashes(snapshot) != binary_manifest:
+            raise RuntimeError('Frozen Walker CLI output changed during the comparison')
     for label in ('walker', 'stryker'):
         walls = [result['wallMs'] for result in summary[label]['runs']]
         summary[label].update({'medianWallMs': statistics.median(walls), 'minWallMs': min(walls),

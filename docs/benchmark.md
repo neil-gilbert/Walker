@@ -9,6 +9,13 @@ For repeated comparisons with Stryker.NET, use
 It alternates execution order, gives each tool its own fresh warmed repository,
 and verifies outcomes for mutations shared by both tools. The older harness below
 runs Stryker only once, even when Walker repetitions are requested.
+For an explanatory control, `--disable-stryker-mixing` changes Stryker's JSON
+configuration to run candidates separately. Keep its default mixing enabled for
+normal competitive comparisons. The [speed diagnosis](walker-speed-diagnosis.md)
+records the measured batching effect and Walker command/phase costs.
+New comparison runs also freeze the complete CLI output into `walker-cli/`
+outside timing, verify its hashes and retain it with the results. This prevents
+concurrent repository builds from changing a binary during the comparison.
 
 ## Pull request checks
 
