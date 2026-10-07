@@ -4,6 +4,12 @@ For a pinned GitHub project, use the [FluentValidation benchmark](real-world-ben
 It measures full-suite and focused verification against a real production change,
 with a default 120-second budget and separate setup timings.
 
+For repeated comparisons with Stryker.NET, use
+[the Stryker comparison](stryker-comparison.md) and `scripts/benchmark_stryker.py`.
+It alternates execution order, gives each tool its own fresh warmed repository,
+and verifies outcomes for mutations shared by both tools. The older harness below
+runs Stryker only once, even when Walker repetitions are requested.
+
 ## Pull request checks
 
 GitHub Actions builds and tests the Release solution on every PR and push to

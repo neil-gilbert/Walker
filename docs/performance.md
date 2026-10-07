@@ -1,5 +1,26 @@
 # Performance review — 2026-10-06
 
+## Stryker.NET comparison — 2026-10-07
+
+Fresh comparisons against Stryker.NET 5.0.0 use identical disposable source/test
+copies, warmed initial builds, alternating execution order and matching
+concurrency limits. Payments is effectively tied across five pairs: Walker
+**7.384s**, Stryker **7.264s** median, with identical outcomes for all four shared
+mutations. Stryker executes one additional killed mutation.
+
+On twenty independent numeric boundaries, three pairs give Walker source mode
+**23.745s** versus Stryker **7.555s** with one worker/session. Walker's opt-in
+switching and two workers give **15.367s** versus Stryker **7.168s** with two
+sessions. Stryker tests forty candidates against Walker's twenty; all shared
+mutations are killed by both. Walker therefore still takes **2.14 times as long**
+in the faster configuration on this fixture. This fixture omits the existing
+Walker-specific fresh-host assertion from both copies, so these measurements
+should not be directly combined with the older worker-only comparison below.
+
+See [the comparison report](stryker-comparison.md) for individual timings,
+mutation scope, memory, validation and reproduction commands. These small
+fixtures establish a remaining performance gap, not a general project ranking.
+
 ## Isolated mutation workers — 2026-10-07
 
 Experimental `--mutant-mode switch --workers 2` runs prepared mutants in a bounded
