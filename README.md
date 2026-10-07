@@ -68,12 +68,16 @@ The theme stays in the docs and the human-readable output. The APIs, the JSON fi
 
 ## 🎒 Survival kit (quick start)
 
+Install a stable .NET 10 SDK to build and run Walker. Target repositories still
+need the SDKs and test runtimes selected by their own projects and `global.json`.
+See the [.NET 10 migration and feature review](docs/dotnet-10.md).
+
 ```bash
 dotnet build Walker.sln
 dotnet test Walker.sln
 
 # Run from the target Git repository; use the absolute path to the verifier DLL.
-dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll verify \
+dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify \
   --base HEAD~1 \
   --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj \
@@ -151,7 +155,7 @@ Put an optional `walker.json` in the current directory:
 }
 ```
 
-CLI arguments override the config. Repeated `--tests`/`--exclude` replace their configured lists. Paths are relative to the current directory; exclusion globs match repository-relative paths. Unknown configuration fields and CLI options are errors, because nobody gets into camp without being checked.
+CLI arguments override the config. Repeated `--tests`/`--exclude` replace their configured lists. Paths are relative to the current directory; exclusion globs match repository-relative paths. Unknown configuration fields, duplicate settings (including case variants), and unknown CLI options are errors, because nobody gets into camp without being checked.
 
 ---
 
@@ -167,7 +171,10 @@ CLI arguments override the config. Repeated `--tests`/`--exclude` replace their 
 Errors take precedence over incomplete execution; incomplete takes precedence over survivors. Check `results` even when a run was incomplete: walkers found before nightfall are still real.
 
 - **Compilation errors are never kills.** A mutant that never compiled was never a threat.
-- Killed results include `failingTests` names from TRX (at most 10). Optional `--confirm-kills` (or `"confirmKills": true` in config) rebuilds restored production and reruns only failing test methods, intersected with the original filter. It is off by default and costs extra builds/test runs inside the same global budget. Parameterized methods can rerun all rows admitted by that filter.
+- Killed results include `failingTests` names from TRX (at most 10). Optional `--confirm-kills` (or `"confirmKills": true` in config) reruns only failing test methods, intersected with the original filter in the killing framework. Source and single-worker paths rebuild restored production; isolated workers use their separate, validated ordinary DLL generation. It is off by default and costs extra work inside the same global budget. Parameterized methods can rerun all rows admitted by that filter.
+- Experimental `--compiled-tests` (or `"compiledTests": true`) compares project and DLL baseline results before using verified assemblies for full retries after preferred tests. It preserves the original filter, framework, output directory and fresh test host. Custom targets/settings and incomplete output metadata keep project execution. The extra probes and output checks can make a run slower; this option is off by default. See the [mutation optimisation plan](docs/mutation-optimisation-plan.md).
+- Experimental `--mutant-mode switch` (or `"mutantMode": "switch"`) prepares selected built-in numeric boundary mutations in an isolated copy, checks the complete baseline again, and activates one mutation per fresh test process. Unsupported syntax or project layouts use source mutation. JSON reports preparation time and switched/fallback counts. Source mode remains the default; preparation may outweigh savings for small diffs. Use this separately from `--compiled-tests`.
+- Experimental `--workers 2` (or `"workers": 2`) overlaps eligible switch attempts using independent output/content copies, working directories, temp and results paths. It requires switch mode; the default is one worker. Both ordinary and inactive prepared baselines must pass concurrently with matching test identities. Fewer than two eligible mutants or failed parallel preparation retain one worker. Source fallback runs serially after active workers finish. JSON reports `workersRequested` and `workersUsed`; preparation includes copying and validation. Use only with tests whose databases, ports and other external resources support concurrent runs. Worker kill confirmation uses its independently validated, ordinary unmutated DLL in the actual failing framework.
 - A repeat failure on unmutated source becomes `TestError`, with `killConfirmed: false`; passing confirmation retains `Killed` with `killConfirmed: true`. `confirmationMs` records its cost. Missing/unsupported identities or more than 10 failures cannot be safely confirmed and yield `TestError`; confirmation cancellation yields `TimedOut`. One confirmation reduces false kills but cannot prove tests are never flaky.
 - Test failures come from TRX counters, not from a generic nonzero exit code.
 - A run with no executed tests is an error. An empty camp is not a defended camp.
@@ -210,8 +217,9 @@ Errors take precedence over incomplete execution; incomplete takes precedence ov
 ### Fighting (execution)
 
 - The baseline build and tests run once before any mutation. A test that was already failing must never count as a kill.
-- Each mutant needs one `dotnet test --no-restore`, which rebuilds the affected graph and runs the tests. Projects run in sequence, and Walker stops at the first project that confirms a failure.
-- Baseline build metadata can prove that a compatible test-project build already includes production; Walker then skips the separate production build. Multi-target, runtime-specific, customized or unconfirmed references keep the separate build.
+- Mutant tests rebuild the affected graph with `dotnet test --no-restore`. Projects and verified target frameworks run in sequence, stopping at the first confirmed test failure. Survivors must pass the full requested scope on every framework.
+- For slower suites, methods that killed earlier mutants run first, intersected with the original filter. Each preferred group must first pass on restored, unmutated source. Passing preferred tests always falls back to the full requested scope, reusing the freshly built mutated assemblies. Quick suites avoid the extra test-host startup.
+- Baseline build metadata can prove that a compatible test-project build already includes production, including SDK-resolved transitive references in multi-target test projects; Walker then skips the separate production build. Multi-target production, runtime-specific, customized or unconfirmed references keep the separate build. Unknown framework metadata or baseline frameworks without executed tests retain the combined test invocation.
 - If a mutant run fails without results, a production-only build separates `CompileError` from `TestError`.
 - Analyzers do not run in Walker's builds (`-p:RunAnalyzers=false`) because they do not change behaviour. Source generators still run.
 

@@ -47,8 +47,7 @@ public sealed class IntegrationTests
         var source = "// uncommitted user change\r\n" + initial.Replace("\n", "\r\n");
         var original = encoding.GetPreamble().Concat(encoding.GetBytes(source)).ToArray();
         await File.WriteAllBytesAsync(sourcePath, original);
-        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
-        var cli = Path.Combine(repository.FullName, "src", "Walker.Cli", "bin", configuration, "net8.0", "Walker.Cli.dll");
+        var cli = typeof(Walker.Cli.TextReportWriter).Assembly.Location;
         workspace.Write("walker.json", "{\"filter\":\"FullyQualifiedName~PaymentTests\"}");
         workspace.Write("Payments.Tests/UnrelatedTests.cs", "using Xunit; public class UnrelatedTests { [Fact] public void AlwaysFails() => Assert.True(false); }");
         async Task<ProcessResult> Verify(string? filter = null) => await Run("dotnet", [cli, "verify", "--project", "Payments/Payments.csproj",

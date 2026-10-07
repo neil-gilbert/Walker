@@ -20,6 +20,8 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
         var baselineCompleted = false;
         var unresolved = 0;
         var unresolvedBoolean = 0;
+        PreparationSummary? preparation = null;
+        var workersUsed = 1;
         try
         {
             var phase = Stopwatch.StartNew();
@@ -42,14 +44,33 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                 }
                 finally { timings = timings with { BaselineMs = phase.ElapsedMilliseconds }; }
                 var context = new VerificationContext(request, new AllTestsSelector(request.Tests, request.Filter));
-                foreach (var mutant in selected)
+                IPreparedMutationSession? session = null;
+                try
                 {
-                    token.ThrowIfCancellationRequested();
-                    var result = await executor.ExecuteAsync(mutant, context, token);
-                    results.Add(result);
-                    // TimedOut means the global budget expired; a per-mutant Hung result does not stop the run.
-                    if (result.Outcome == MutationOutcome.TimedOut) break;
+                    if (executor is IBatchMutationPreparer preparer)
+                    {
+                        phase.Restart();
+                        try { session = await preparer.PrepareAsync(request, selected, token); }
+                        finally
+                        {
+                            var supported = session?.SupportedMutantIds.Count ?? 0;
+                            preparation = new(phase.ElapsedMilliseconds, supported, selected.Length - supported,
+                                session?.Detail ?? "Prepared execution unavailable; ordinary source execution retained.");
+                        }
+                    }
+                    workersUsed = session?.WorkerCount ?? 1;
+                    if (request.Workers > 1 && session is IMutationBatchExecutor batch)
+                        results.AddRange(await batch.ExecuteBatchAsync(selected, context, token));
+                    else foreach (var mutant in selected)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var result = await (session ?? executor).ExecuteAsync(mutant, context, token);
+                        results.Add(result);
+                        // TimedOut means the global budget expired; a per-mutant Hung result does not stop the run.
+                        if (result.Outcome == MutationOutcome.TimedOut) break;
+                    }
                 }
+                finally { if (session != null) await session.DisposeAsync(); }
             }
         }
         catch (OperationCanceledException)
@@ -65,6 +86,8 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             results.Add(new(mutant, MutationOutcome.Skipped, Detail: baselineStarted && !baselineCompleted
                 ? "Skipped because the baseline did not complete; no mutant could start. " + error
                 : error ?? "Verification budget exhausted or cancelled."));
+        var positions = selected.Select((mutant, index) => (mutant.Id, index)).ToDictionary(p => p.Id, p => p.index, StringComparer.Ordinal);
+        results.Sort((a, b) => positions[a.Mutant.Id].CompareTo(positions[b.Mutant.Id]));
         var incomplete = token.IsCancellationRequested || results.Any(r => r.Outcome is MutationOutcome.TimedOut or MutationOutcome.Skipped);
         var status = infrastructureError || results.Any(r => r.Outcome is MutationOutcome.CompileError or MutationOutcome.TestError) ? "error"
             : incomplete ? "incomplete" : results.Any(r => r.Outcome == MutationOutcome.Survived) ? "failed"
@@ -76,7 +99,10 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
         return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter, unresolvedBoolean)
         {
             Files = SummarizeFiles(files, mutants, selected),
-            ConfirmKills = request.ConfirmKills
+            ConfirmKills = request.ConfirmKills,
+            Preparation = preparation,
+            WorkersRequested = request.Workers,
+            WorkersUsed = workersUsed
         };
     }
     private static FileVerificationSummary[] SummarizeFiles(IReadOnlyList<SourceChange> changes,

@@ -66,7 +66,7 @@ If the tool has not been installed but its source is available, build the verifi
 ```bash
 dotnet build <verifier-repo>/src/Walker.Cli/Walker.Cli.csproj
 
-dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll verify \
+dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify \
   --base <base-ref-or-sha> \
   --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj \
@@ -76,6 +76,19 @@ dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net8.0/Walker.Cli.dll verify \
 Run verification from inside the **isolated target worktree**. CLI project and test paths are relative to the current directory; configured exclude globs match repository-relative paths. Do not assume a package named `Walker.Cli` on a public feed is this implementation. Use the supplied source or a trusted installed tool.
 
 If .NET, Git, package restore, or the verifier is unavailable, report the blocker. Do not claim mutation verification passed.
+
+The current Walker CLI requires the .NET 10 runtime; building its source requires the repository's .NET 10 SDK. Target projects retain their own SDK/framework policy, including SDK 8 or 9. When using separate installations, run the CLI apphost (`Walker.Cli`, or `Walker.Cli.exe` on Windows) with `DOTNET_ROOT` pointing to the .NET 10 installation and put the target SDK on `PATH`. On macOS, hosting the DLL through a separate `dotnet` executable can cause child commands to resolve from that executable's directory and miss the target SDK. Treat SDK-resolution failure as infrastructure failure; preserve the target's `global.json`.
+
+## Choose an execution mode
+
+Keep the configured mode unless the user requests a change or a measured comparison justifies one. The default is `--mutant-mode source` (`"mutantMode": "source"`). Source mode automatically uses baseline metadata reuse and adaptive preferred-test planning; they need no extra flags. Preferred groups must pass on original source, and passing preferred attempts fall back to the complete requested scope before a mutant can survive.
+
+- `--mutant-mode switch` / `"mutantMode": "switch"` is experimental. It prepares selected built-in numeric relational boundaries in a scratch copy, verifies the complete requested baseline again with no mutation active, then activates one mutant per fresh test process over the requested scope. Consider it for several eligible boundaries when repeated builds dominate. Preparation and confirmation consume the same timeout. Unsupported operators, decimal/nullable/dynamic operands, expression trees, overloaded conversions, custom source generators or unproved build layouts retain source mutation. Failed preparation also falls back; it is not a batch of compile errors. Keep the dedicated outer worktree because source fallback can still mutate there.
+- `--compiled-tests` / `"compiledTests": true` is a separate experimental source-mode option. It probes project/DLL baseline parity and can reuse verified DLLs for full retries after preferred tests. Its added setup regressed the measured workloads, so leave it off unless configured or testing that path. Switch mode already uses the assembly runner; combining these options is rejected.
+
+- `--workers 2` / `"workers": 2` is an experimental switch-mode option; the default is one. Use it only when the suite's databases, ports and other external resources support concurrent test hosts. Workers own separate output/content copies, working directories, temp and TRX paths. Ordinary and inactive prepared baselines run concurrently and must match the original test identities. Fewer than two eligible mutants or a rejected parallel baseline retain one worker. Source fallback waits for active workers and stays serial. Keep the dedicated outer worktree.
+
+Switching improved the eligible twenty-boundary fixture, but did not improve unsupported workloads and repeatedly slowed Payments. Choose experimental options from measured eligibility and total time, including preparation, rather than assuming they make every run faster. Two workers also increase concurrent memory demand. For optimisation work in Walker's source checkout, read `docs/mutation-optimisation-plan.md` and `docs/performance.md` for the current gates, operator support and measurements. These repository documents are not part of a copied standalone skill. Concurrent CLI invocations still require separate worktrees.
 
 ## Execute and capture JSON
 
@@ -102,6 +115,10 @@ For slow test projects, choose a relevant subset with `--filter "FullyQualifiedN
 
 Check `schemaVersion` before relying on fields; this implementation uses version 1. Version 1 also contains the additive `hung` count, `Hung` outcome and `unresolvedArithmetic` count (arithmetic candidates whose operand types could not be resolved and were not mutated). Inspect `files` for changed production files with zero `mutantsDiscovered` or zero `mutantsSelected`. Explicitly report these gaps even when the run passes; use normal focused tests/review to investigate them. Text output names files with no candidates. Inspect `status`, `error`, `mutantsDiscovered`, `mutantsSelected`, `mutantsExecuted`, outcome counts, `survivors`, and `results`. Timings show discovery, baseline, build, test, and per-mutant cost. Selection is deterministic and bounded; candidates outside `--max-mutants` are not executed and are not counted as budget-skipped selected mutants.
 
+For switch runs, also read the additive `preparation` object: `durationMs`, `supported`, `fallback` and `detail`. It is normally null in source mode. Supported/fallback counts describe preparation eligibility, not how many mutants completed; use `mutantsExecuted` and outcomes for execution evidence. Zero supported means no switched execution was available; confirm that source mutants actually completed before claiming evidence. Include preparation in reported runtime and record these counts when assessing speed. Zero per-mutant `buildMs` alone does not prove compilation was avoided: source-mode `dotnet test` includes build work in `testMs`.
+
+Also record `workersRequested` and `workersUsed`. A request for two does not prove the pool was available; inspect preparation detail when only one was used. JSON results retain selected order despite concurrent completion. Cancellation drains running children before workspace cleanup; never-started selected mutants are skipped.
+
 ## Interpret the result
 
 | Exit | Meaning | Agent action |
@@ -117,7 +134,7 @@ A zero-candidate run is incomplete because it provides no mutation evidence. A t
 
 Outcome meanings:
 
-- `Killed`: inspect `failingTests` (capped at 10 names). With slow/flaky integration suites, consider `--confirm-kills` or config `"confirmKills": true`: after exact-byte restoration it rebuilds production and reruns the failed test methods intersected with the same filter. This adds builds/tests within the global budget; parameterized methods may run multiple rows. Repeated failures on unmutated source are `TestError` with `killConfirmed: false`; successful confirmation sets `killConfirmed: true`. Missing/unsupported identities or over 10 failures prevent confirmation and yield `TestError`. A confirmation reduces false kills but does not eliminate flakiness. Without confirmation, executed tests failed with the mutation present. Baseline tests must have passed.
+- `Killed`: inspect `failingTests` (capped at 10 names). With slow/flaky integration suites, consider `--confirm-kills` or config `"confirmKills": true`: it reruns the failed test methods intersected with the same filter. Source and single-worker paths rebuild production after exact-byte restoration; parallel workers use their separate, validated ordinary DLL generation in the actual failing framework. This adds work within the global budget; parameterized methods may run multiple rows. Repeated failures on unmutated source are `TestError` with `killConfirmed: false`; successful confirmation sets `killConfirmed: true`. Missing/unsupported identities or over 10 failures prevent confirmation and yield `TestError`. A confirmation reduces false kills but does not eliminate flakiness. Without confirmation, executed tests failed with the mutation present. Baseline tests must have passed.
 - `Survived`: executed relevant tests still passed.
 - `CompileError`: the production mutation did not build. This is not a kill.
 - `TestError`: tests did not execute normally, had no executed tests, or a test-project build failed. This is not a kill.
@@ -143,7 +160,7 @@ Example: if equality is explicitly permitted, add a test asserting `CanPurchase(
 
 ## Source safety and operating limits
 
-Execution modifies one worktree source file at a time, then restores its exact original bytes in cleanup. The CLI handles Ctrl+C with cancellation; wait for it and its child build/test processes to exit before inspecting source or removing the worktree. Keep the snapshot fixed while verification runs; make intentional fixes in the source checkout between runs. Give concurrent invocations separate worktrees and output paths.
+Source-mode execution modifies one worktree source file at a time, then restores its exact original bytes in cleanup. Supported switch mutants execute from prepared scratch outputs; unsupported mutants use the source path. Switch mode checks input hashes and refuses stale prepared execution if build inputs change. The CLI handles Ctrl+C with cancellation; wait for it and its child build/test processes to exit before inspecting source or removing the worktree. Keep the snapshot fixed while verification runs; make intentional fixes in the source checkout between runs. Give concurrent invocations separate worktrees and output paths.
 
 Normal process errors, test failures, cancellation, and budget expiry should restore source. Forced process termination or host failure can leave mutations behind in the disposable worktree. Compare it against the captured snapshot after execution and report restoration failures; never use its residual diff as a proposed fix. Keep an abnormal run's worktree and artifacts for investigation. Recovery must not discard or restore files in the agent's source checkout.
 
@@ -153,7 +170,7 @@ V1 runs configured test projects for each selected mutant until a project confir
 
 Return results to the calling agent on every outcome, including setup failures, survivors, timeout, cancellation, invalid JSON, and restoration failure. If verification is delegated, the worker must return the report contents or an accessible artifact path, process exit code, stderr diagnostics, source HEAD and base SHA, worktree path, and scope to its parent before finishing. The calling agent must read the report and act on it; a report left only in a disposable worktree is not a completed handoff.
 
-Keep feedback concise: base and project scope; executed/selected/discovered counts; killed, survived, errored, timed out, and skipped counts; runtime; survivor locations and changed behaviour; investigation or limitations. Include ordinary test results separately.
+Keep feedback concise: base and project scope; effective mode and experimental options; executed/selected/discovered counts; killed, survived, errored, timed out, and skipped counts; runtime; preparation cost and supported/fallback counts when present; survivor locations and changed behaviour; investigation or limitations. Include ordinary test results separately.
 
 Use wording such as:
 

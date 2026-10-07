@@ -12,6 +12,9 @@ public static class TextReportWriter
             writer.WriteLine($"No mutation candidates: {file.File} ({file.ChangedLines} changed lines; no mutation evidence for this file)");
         writer.WriteLine($"Horde: {result.MutantsDiscovered} mutation candidates");
         writer.WriteLine($"{result.MutantsSelected} selected for verification");
+        if (result.WorkersRequested > 1) writer.WriteLine($"Workers: {result.WorkersUsed} used / {result.WorkersRequested} requested");
+        if (result.Preparation != null)
+            writer.WriteLine($"Preparation: {result.Preparation.Supported} switched, {result.Preparation.Fallback} source fallback ({(result.Preparation.DurationMs / 1000.0).ToString("F1", CultureInfo.InvariantCulture)}s)");
         writer.WriteLine($"{result.MutantsExecuted}/{result.MutantsSelected} executed");
         writer.WriteLine($"{result.Killed} KILLED");
         if (result.Hung > 0) writer.WriteLine($"{result.Hung} hung (exceeded the per-mutant hang limit; counted as detected)");

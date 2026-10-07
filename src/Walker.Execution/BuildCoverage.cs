@@ -2,11 +2,11 @@ using System.Text.Json;
 namespace Walker.Execution;
 
 // Observe actual baseline-build metadata. Unknown/customized layouts use the original
-// explicit production build; this optimization only covers ordinary direct references.
+// explicit production build. Inner-build metadata also includes SDK-resolved transitive references.
 internal sealed class BuildCoverage
 {
     private static readonly StringComparer Paths = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-    private readonly HashSet<string> coveringTests = new(Paths);
+    private readonly Dictionary<string, HashSet<string?>> coveringTests = new(Paths);
     private readonly string root;
     private readonly string productionProject;
     private readonly Settings? production;
@@ -18,16 +18,16 @@ internal sealed class BuildCoverage
         using var document = Parse(metadata);
         production = document == null ? null : ReadSettings(document.RootElement);
     }
-    public bool Covers(string project, string requestedRoot, string requestedProduction) =>
+    public bool Covers(string project, string requestedRoot, string requestedProduction, string? framework = null) =>
         Paths.Equals(root, requestedRoot) && Paths.Equals(productionProject, Path.GetFullPath(requestedProduction, requestedRoot))
-        && coveringTests.Contains(Path.GetFullPath(project, requestedRoot));
+        && coveringTests.TryGetValue(Path.GetFullPath(project, requestedRoot), out var frameworks) && frameworks.Contains(framework);
 
-    public void ObserveTestBuild(string project, string metadata)
+    public void ObserveTestBuild(string project, string metadata, string? framework = null)
     {
         if (production == null) return;
         using var document = Parse(metadata);
         if (document == null) return;
-        var settings = ReadSettings(document.RootElement);
+        var settings = ReadSettings(document.RootElement, framework);
         if (settings == null || !settings.BuildReferences || settings.Configuration != production.Configuration
             || settings.Platform != production.Platform) return;
         if (!document.RootElement.TryGetProperty("Items", out var items) || items.ValueKind != JsonValueKind.Object
@@ -44,7 +44,9 @@ internal sealed class BuildCoverage
                 .Any(name => Value(reference, name).Length != 0)) continue;
             if (Value(reference, "UndefineProperties").Split(';', StringSplitOptions.RemoveEmptyEntries)
                 .Any(name => name is not ("TargetFramework" or "RuntimeIdentifier" or "SelfContained"))) continue;
-            coveringTests.Add(Path.GetFullPath(project, root));
+            var pathKey = Path.GetFullPath(project, root);
+            if (!coveringTests.TryGetValue(pathKey, out var frameworks)) coveringTests[pathKey] = frameworks = [];
+            frameworks.Add(framework);
         }
     }
     // Metadata is optional; anything that is not a JSON object falls back to explicit builds.
@@ -59,7 +61,7 @@ internal sealed class BuildCoverage
         catch (JsonException) { }
         return null;
     }
-    private static Settings? ReadSettings(JsonElement root)
+    private static Settings? ReadSettings(JsonElement root, string? selectedFramework = null)
     {
         if (!root.TryGetProperty("Properties", out var properties) || properties.ValueKind != JsonValueKind.Object) return null;
         if (new[] { "TargetFramework", "TargetFrameworks", "Configuration", "Platform", "RuntimeIdentifier", "BuildProjectReferences" }
@@ -68,7 +70,10 @@ internal sealed class BuildCoverage
         var configuration = Value(properties, "Configuration");
         var platform = Value(properties, "Platform");
         if (framework.Length == 0 || configuration.Length == 0 || platform.Length == 0
-            || Value(properties, "TargetFrameworks").Length != 0 || Value(properties, "RuntimeIdentifier").Length != 0) return null;
+            || Value(properties, "RuntimeIdentifier").Length != 0) return null;
+        var frameworks = Value(properties, "TargetFrameworks");
+        if (selectedFramework == null ? frameworks.Length != 0 : framework != selectedFramework
+            || (frameworks.Length != 0 && !frameworks.Split(';', StringSplitOptions.TrimEntries).Contains(selectedFramework))) return null;
         return new(framework, configuration, platform, Value(properties, "BuildProjectReferences") == "true");
     }
     private static string Value(JsonElement element, string name) => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()! : "";

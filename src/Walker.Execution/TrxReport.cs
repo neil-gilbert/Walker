@@ -3,10 +3,12 @@ namespace Walker.Execution;
 
 // Read counters and bounded failure identities without loading large TRX result bodies into memory.
 internal sealed record TrxReport(int Executed, int Failed, string? Error,
-    IReadOnlyList<TrxFailure> Failures, bool FailureSelectionComplete)
+    IReadOnlyList<TrxFailure> Failures, bool FailureSelectionComplete, string? Identity = null)
 {
-    public static TrxReport Read(string path)
+    public static TrxReport Read(string path, bool captureIdentity = false)
     {
+        var identities = new List<(string? Id, string? Name, string? Outcome)>();
+        var identityComplete = captureIdentity;
         var failures = new List<(string Name, string? Id)>();
         var resultCount = 0;
         (int Executed, int Failed)? counters = null;
@@ -16,6 +18,11 @@ internal sealed record TrxReport(int Executed, int Failed, string? Error,
             while (reader.Read())
             {
                 if (reader.NodeType != XmlNodeType.Element) continue;
+                if (captureIdentity && reader.LocalName == "UnitTestResult")
+                {
+                    if (identities.Count < 100_000) identities.Add((reader.GetAttribute("testId"), reader.GetAttribute("testName"), reader.GetAttribute("outcome")));
+                    else identityComplete = false;
+                }
                 if (reader.LocalName == "UnitTestResult" && reader.GetAttribute("outcome") == "Failed")
                 {
                     resultCount++;
@@ -34,9 +41,11 @@ internal sealed record TrxReport(int Executed, int Failed, string? Error,
         if (counters == null) return new(0, 0, "Malformed test report.", [], false);
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         var wanted = failures.Where(f => f.Id != null).Select(f => f.Id!).ToHashSet(StringComparer.Ordinal);
+        if (captureIdentity) wanted.UnionWith(identities.Where(r => r.Id != null).Select(r => r.Id!));
         if (wanted.Count > 0)
         {
-            // Definitions may appear before or after Results. A second streaming pass maps only failed IDs.
+            // Definitions may appear before or after Results. Ordinary execution maps only failures;
+            // the opt-in compatibility probe also needs every executed method and theory case.
             using var reader = XmlReader.Create(path, settings);
             while (reader.Read())
             {
@@ -51,9 +60,14 @@ internal sealed record TrxReport(int Executed, int Failed, string? Error,
                 }
             }
         }
+        var identity = identityComplete && identities.Count > 0
+            && identities.Count(r => r.Outcome is "Passed" or "Failed") == counters.Value.Executed
+            && identities.All(r => r.Id != null && names.ContainsKey(r.Id) && r.Name != null && r.Outcome is "Passed" or "Failed" or "NotExecuted")
+            ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                System.Text.Json.JsonSerializer.Serialize(identities.Select(r => new[] { names[r.Id!], r.Name!, r.Outcome! }).OrderBy(r => System.Text.Json.JsonSerializer.Serialize(r), StringComparer.Ordinal))))) : null;
         return new(counters.Value.Executed, counters.Value.Failed, null,
             failures.Select(f => new TrxFailure(f.Name, f.Id != null ? names.GetValueOrDefault(f.Id) : null)).ToArray(),
-            resultCount == counters.Value.Failed && resultCount <= 10);
+            resultCount == counters.Value.Failed && resultCount <= 10, identity);
     }
 }
 internal sealed record TrxFailure(string Name, string? FullyQualifiedName);

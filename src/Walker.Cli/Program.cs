@@ -15,9 +15,12 @@ try
     if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
     {
         Console.WriteLine("walker verify [--base HEAD~1] --project <csproj> --tests <csproj> [--tests <csproj> ...]\n" +
-            "  [--max-mutants 20] [--timeout 60] [--format text|json] [--exclude <glob>] [--filter <expression>] [--confirm-kills] [--verbose]\n" +
+            "  [--max-mutants 20] [--timeout 60] [--format text|json] [--exclude <glob>] [--filter <expression>] [--confirm-kills] [--compiled-tests] [--mutant-mode source|switch] [--workers 1|2] [--verbose]\n" +
             "  --filter applies the same dotnet test filter to the baseline and all mutants; zero tests is an error.\n" +
             "  --confirm-kills reruns failing test methods on restored source; adds builds/test runs and uses the same budget.\n" +
+            "  --compiled-tests probes assembly compatibility, then uses verified DLLs for full retries after preferred tests; adds baseline work.\n" +
+            "  --mutant-mode source|switch selects ordinary source mutation or experimental compile-once numeric boundaries (default source).\n" +
+            "  --workers 1|2 opts into isolated prepared workers in switch mode (default 1); tests must support concurrent external resources.\n" +
             "Reads walker.json in the current directory; CLI options override configuration.\n" +
             "Exit codes: 0 passed, 1 survivors, 2 infrastructure error, 3 incomplete.\n" +
             "No eligible mutations yields incomplete. Surviving mutants require investigation, not automatic production changes.");
@@ -26,19 +29,23 @@ try
     if (args[0] != "verify") throw new ArgumentException("Expected command: verify.");
     var cwd = Directory.GetCurrentDirectory();
     var config = File.Exists("walker.json") ? JsonSerializer.Deserialize<Configuration>(await File.ReadAllTextAsync("walker.json"),
-        new JsonSerializerOptions { PropertyNameCaseInsensitive = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow }) ?? new() : new Configuration();
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+            AllowDuplicateProperties = false }) ?? new() : new Configuration();
     var tests = new List<string>(); var exclude = new List<string>(); var verbose = false;
     format = config.Format ?? "text";
     for (var i = 1; i < args.Length; i++)
     {
         var option = args[i];
         if (option == "--confirm-kills") { config.ConfirmKills = true; continue; }
+        if (option == "--compiled-tests") { config.CompiledTests = true; continue; }
         if (option == "--verbose") { verbose = true; continue; }
         if (++i >= args.Length) throw new ArgumentException("Missing value for " + option);
         var value = args[i];
         switch (option)
         {
             case "--filter": config.Filter = value; break;
+            case "--mutant-mode": config.MutantMode = value; break;
+            case "--workers": config.Workers = int.Parse(value); break;
             case "--base": config.Base = value; break;
             case "--project": config.Project = value; break;
             case "--tests": tests.Add(value); break;
@@ -50,6 +57,10 @@ try
         }
     }
     if (format is not ("text" or "json")) throw new ArgumentException("Format must be text or json.");
+    if (config.MutantMode is not ("source" or "switch")) throw new ArgumentException("Mutant mode must be source or switch.");
+    if (config.MutantMode == "switch" && config.CompiledTests) throw new ArgumentException("Switch mode already verifies compiled outputs; omit --compiled-tests.");
+    if (config.Workers is not (1 or 2)) throw new ArgumentException("Workers must be 1 or 2.");
+    if (config.Workers > 1 && config.MutantMode != "switch") throw new ArgumentException("Multiple workers require --mutant-mode switch.");
     if (tests.Count == 0) tests.AddRange(config.Tests ?? []);
     if (exclude.Count == 0) exclude.AddRange(config.Exclude ?? []);
     if (config.Project == null || tests.Count == 0) throw new ArgumentException("Provide --project and at least one --tests (or walker.json).");
@@ -65,17 +76,19 @@ try
     // Repair a source file left mutated by a previously killed run before discovery reads it.
     if (await MutationJournal.RecoverAsync(root, CancellationToken.None) is { } recovered) Console.Error.WriteLine(recovered);
     var request = new VerificationRequest(root, config.Base ?? "HEAD~1", Path.GetFullPath(config.Project, cwd),
-        tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude, config.Filter, config.ConfirmKills);
+        tests.Select(p => Path.GetFullPath(p, cwd)).ToArray(), config.MaxMutants, config.TimeoutSeconds, exclude, config.Filter, config.ConfirmKills, config.Workers);
     using var cancelled = new CancellationTokenSource();
     ConsoleCancelEventHandler handler = (_, e) => { e.Cancel = true; cancelled.Cancel(); };
     Console.CancelKeyPress += handler;
     VerificationResult result;
     try
     {
-        var executor = new DotnetMutationExecutor(runner);
+        IMutationExecutor executor = config.MutantMode == "switch"
+            ? new SwitchingMutationExecutor(runner, verbose ? message => Console.Error.WriteLine(message) : null)
+            : new DotnetMutationExecutor(runner, compiledTests: config.CompiledTests);
         var scope = new MsBuildSourceScope(runner);
         var discoverer = new RoslynMutationDiscoverer(async token => await scope.GetFilesAsync(request, token));
-        result = await new VerificationEngine(new GitChangeProvider(runner, scope), discoverer, executor, executor)
+        result = await new VerificationEngine(new GitChangeProvider(runner, scope), discoverer, executor, (IBaselineVerifier)executor)
             .VerifyAsync(request, cancelled.Token);
     }
     finally { Console.CancelKeyPress -= handler; }
@@ -98,6 +111,9 @@ sealed class Configuration
     public string? Format { get; set; }
     public string? Filter { get; set; }
     public bool ConfirmKills { get; set; }
+    public bool CompiledTests { get; set; }
+    public string MutantMode { get; set; } = "source";
+    public int Workers { get; set; } = 1;
     public int MaxMutants { get; set; } = 20;
     public int TimeoutSeconds { get; set; } = 60;
 }

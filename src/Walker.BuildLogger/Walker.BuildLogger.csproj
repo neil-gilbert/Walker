@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Loaded by the target repository's SDK, which can still be .NET 8 or 9. -->
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile against the oldest supported host; MSBuild supplies its own assembly at runtime. -->
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.11.4" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

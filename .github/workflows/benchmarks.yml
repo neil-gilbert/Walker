@@ -39,7 +39,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - name: Use identical benchmark source for both revisions
         run: |
           rm -rf base/benchmarks/Walker.Benchmarks
@@ -63,9 +65,11 @@ jobs:
       - name: Compare completed verification latency
         working-directory: head
         run: |
+          head_cli="$(dotnet msbuild src/Walker.Cli/Walker.Cli.csproj -nologo -p:Configuration=Release -getProperty:TargetPath)"
+          base_cli="$(dotnet msbuild ../base/src/Walker.Cli/Walker.Cli.csproj -nologo -p:Configuration=Release -getProperty:TargetPath)"
           python3 scripts/benchmark.py --skip-stryker --repetitions 3 \
-            --cli src/Walker.Cli/bin/Release/net8.0/Walker.Cli.dll \
-            --compare-cli ../base/src/Walker.Cli/bin/Release/net8.0/Walker.Cli.dll \
+            --cli "$head_cli" \
+            --compare-cli "$base_cli" \
             --output ../artifacts/end-to-end
       - name: Write comparison summary
         if: always()

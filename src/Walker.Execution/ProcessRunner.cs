@@ -9,6 +9,12 @@ public sealed class ProcessRunner : IProcessRunner
         var info = new ProcessStartInfo(request.FileName) { WorkingDirectory = request.WorkingDirectory,
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var argument in request.Arguments) info.ArgumentList.Add(argument);
+        if (request.Environment != null)
+            foreach (var (name, value) in request.Environment)
+            {
+                if (value == null) info.Environment.Remove(name);
+                else info.Environment[name] = value;
+            }
         // Skip per-invocation telemetry and banners; respect explicit user settings.
         foreach (var name in new[] { "DOTNET_CLI_TELEMETRY_OPTOUT", "DOTNET_NOLOGO", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE" })
             if (!info.Environment.ContainsKey(name)) info.Environment[name] = "1";
