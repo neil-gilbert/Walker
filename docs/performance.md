@@ -1,5 +1,23 @@
 # Performance review — 2026-10-06
 
+## Coverage batching — 2026-10-07
+
+Switch mode now batches disjoint, covered stateless boundaries behind a narrow
+test-source safety gate. Missing/ambiguous coverage, changed paths, errors and
+hangs retain individual retries; confirmation stays individual. Preparation
+combines ordinary layout/output queries and consumes output metadata from
+single-framework builds when complete. Effective batches avoid a second worker
+generation and its parallel probes; sparse coverage retains the existing pool.
+
+Three fresh pairs per frozen revision reduced the twenty-boundary Walker median
+from **14.618s to 7.091s**, including preparation, a **51.5%** reduction. Normal
+Stryker measured **6.886s** in the final packed-candidate series: Walker is now
+within **3.0%** on this fixture. All twenty shared outcomes match; Walker uses one batch for twenty
+mutations while Stryker retains forty killed mutations. Source mode remains the
+default. See [coverage batching](coverage-batching.md) for exact eligibility,
+fallbacks, test evidence and the controls; these numbers do not establish a
+general performance ranking.
+
 ## Stryker.NET comparison — 2026-10-07
 
 Fresh comparisons against Stryker.NET 5.0.0 use identical disposable source/test

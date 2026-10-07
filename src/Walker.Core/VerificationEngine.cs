@@ -59,7 +59,7 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                         }
                     }
                     workersUsed = session?.WorkerCount ?? 1;
-                    if (request.Workers > 1 && session is IMutationBatchExecutor batch)
+                    if (session is IMutationBatchExecutor batch)
                         results.AddRange(await batch.ExecuteBatchAsync(selected, context, token));
                     else foreach (var mutant in selected)
                     {

@@ -360,7 +360,7 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
     }
     private async Task<TestRunResult> RunTestScope(string project, string root, string? filter, string? framework,
         CancellationToken token, bool noBuild, string? classifyBuildFailureFor, bool baseline = false,
-        CompiledTestOutput? output = null, bool captureIdentity = false, IReadOnlyDictionary<string, string?>? environment = null)
+        CompiledTestOutput? output = null, bool captureIdentity = false, IReadOnlyDictionary<string, string?>? environment = null, string? settings = null)
     {
         long buildMs = 0, testMs = 0;
         var directory = Path.Combine(resultsRoot ?? Path.GetTempPath(), "walker-" + Guid.NewGuid().ToString("N"));
@@ -379,6 +379,7 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
                 if (framework != null) args.AddRange(["--framework", framework]);
             }
             if (filter != null) args.AddRange(["--filter", filter]);
+            if (settings != null) args.AddRange(["--settings", settings]);
             var run = await runner.RunAsync(new("dotnet", args, root, Environment: environment), token);
             testMs += run.DurationMs;
             var reports = Directory.GetFiles(directory, "*.trx", SearchOption.AllDirectories);
@@ -400,12 +401,14 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
             var complete = true;
             var allReportsExecuted = true;
             var identities = new List<string>();
+            var cases = new List<TrxCase>();
             var identityComplete = true;
             foreach (var report in reports)
             {
                 var counters = TrxReport.Read(report, captureIdentity || ((compiledTests || captureBaselineIdentities) && baseline));
                 if (counters.Identity == null) identityComplete = false;
                 else identities.Add(counters.Identity);
+                if (counters.Cases != null) cases.AddRange(counters.Cases);
                 if (counters.Error != null) return new(MutationOutcome.TestError, buildMs, testMs, counters.Error);
                 total += counters.Executed; failed += counters.Failed;
                 allReportsExecuted &= counters.Executed > 0;
@@ -427,8 +430,8 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
                 return new(MutationOutcome.TestError, buildMs, testMs, "No executed tests or inconsistent runner results: " + Diagnostic(run));
             // A kill needs actual failed-test counters; build errors and empty scopes never count.
             if (failed > 0) return new(MutationOutcome.Killed, buildMs, testMs, Failures: failures,
-                FailureSelectionComplete: complete, Filter: filter, Framework: framework);
-            return new(MutationOutcome.Survived, buildMs, testMs, Identities: identityComplete ? identities : null);
+                FailureSelectionComplete: complete, Filter: filter, Framework: framework, Cases: identityComplete ? cases : null);
+            return new(MutationOutcome.Survived, buildMs, testMs, Identities: identityComplete ? identities : null, Cases: identityComplete ? cases : null);
         }
         finally
         {
@@ -440,11 +443,11 @@ public sealed class DotnetMutationExecutor(IProcessRunner runner, TimeSpan? hang
     internal sealed record TestFailure(string Name, string? FullyQualifiedName, string Project);
     internal sealed record TestRunResult(MutationOutcome Outcome, long BuildMs, long TestMs, string? Detail = null,
         IReadOnlyList<TestFailure>? Failures = null, bool FailureSelectionComplete = false, string? Filter = null, string? Framework = null, bool NoTests = false,
-        IReadOnlyList<string>? Identities = null);
+        IReadOnlyList<string>? Identities = null, IReadOnlyList<TrxCase>? Cases = null);
     internal Task<TestRunResult> RunAssembly(CompiledTestOutput output, string project, string root, string? filter,
-        string? framework, IReadOnlyDictionary<string, string?> environment, CancellationToken token, bool captureIdentity = false)
+        string? framework, IReadOnlyDictionary<string, string?> environment, CancellationToken token, bool captureIdentity = false, string? settings = null)
         => RunTestScope(project, root, filter, framework, token, noBuild: true, classifyBuildFailureFor: null,
-            output: output, captureIdentity: captureIdentity, environment: environment);
+            output: output, captureIdentity: captureIdentity, environment: environment, settings: settings);
     private static string Diagnostic(ProcessResult result)
     {
         var text = (result.StandardError + "\n" + result.StandardOutput).Trim();

@@ -228,8 +228,12 @@ def main():
                         raise RuntimeError(f'Walker outcomes {actual} != {expected}')
                     if args.fixture == 'boundaries' and args.mutant_mode == 'switch':
                         preparation = report.get('preparation') or {}
-                        if (preparation.get('supported'), preparation.get('fallback'),
-                                report.get('workersUsed')) != (20, 0, args.workers):
+                        coverage_batch = (report.get('workersUsed') == 1
+                                          and 'coverage batches' in (preparation.get('detail') or '')
+                                          and all('disjoint coverage batch' in (row.get('detail') or '')
+                                                  for row in report['results']))
+                        if ((preparation.get('supported'), preparation.get('fallback')) != (20, 0)
+                                or (report.get('workersUsed') != args.workers and not coverage_batch)):
                             raise RuntimeError('Boundary switching/pool was not actually used')
                     result.update({key: report.get(key) for key in
                                    ('status', 'mutantsExecuted', 'killed', 'survived',

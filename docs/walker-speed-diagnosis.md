@@ -1,5 +1,10 @@
 # Why Walker is slower than Stryker.NET — 2026-10-07
 
+**Implementation follow-up:** [Coverage batching](coverage-batching.md) implements
+the main batching/query opportunities below. Fresh completed comparisons reduce
+the twenty-boundary median from 14.618s to 7.091s and close the measured gap to
+normal Stryker. The remainder of this document records the original diagnosis.
+
 ## Finding
 
 The main cause on the twenty-boundary fixture is **the number of test runs**.

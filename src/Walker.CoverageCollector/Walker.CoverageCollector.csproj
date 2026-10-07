@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <!-- The target test host supplies its own VSTest API assembly. -->
+    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="17.11.1" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

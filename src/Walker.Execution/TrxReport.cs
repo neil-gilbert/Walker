@@ -3,7 +3,8 @@ namespace Walker.Execution;
 
 // Read counters and bounded failure identities without loading large TRX result bodies into memory.
 internal sealed record TrxReport(int Executed, int Failed, string? Error,
-    IReadOnlyList<TrxFailure> Failures, bool FailureSelectionComplete, string? Identity = null)
+    IReadOnlyList<TrxFailure> Failures, bool FailureSelectionComplete, string? Identity = null,
+    IReadOnlyList<TrxCase>? Cases = null)
 {
     public static TrxReport Read(string path, bool captureIdentity = false)
     {
@@ -67,7 +68,10 @@ internal sealed record TrxReport(int Executed, int Failed, string? Error,
                 System.Text.Json.JsonSerializer.Serialize(identities.Select(r => new[] { names[r.Id!], r.Name!, r.Outcome! }).OrderBy(r => System.Text.Json.JsonSerializer.Serialize(r), StringComparer.Ordinal))))) : null;
         return new(counters.Value.Executed, counters.Value.Failed, null,
             failures.Select(f => new TrxFailure(f.Name, f.Id != null ? names.GetValueOrDefault(f.Id) : null)).ToArray(),
-            resultCount == counters.Value.Failed && resultCount <= 10, identity);
+            resultCount == counters.Value.Failed && resultCount <= 10, identity,
+            identityComplete ? identities.Where(r => r.Outcome is "Passed" or "Failed")
+                .Select(r => new TrxCase(r.Id!, r.Name!, r.Outcome!)).ToArray() : null);
     }
 }
 internal sealed record TrxFailure(string Name, string? FullyQualifiedName);
+internal sealed record TrxCase(string Id, string Name, string Outcome);

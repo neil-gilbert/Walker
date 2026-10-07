@@ -5,12 +5,86 @@ namespace Walker.Execution;
 
 internal sealed class PreparedMutationSession(DotnetMutationExecutor source, MutationWorkspace workspace, VerificationRequest request,
     IReadOnlyDictionary<string, int> activeIds, string environmentName, IReadOnlyList<PreparedMutationSession.Scope> scopes,
-    bool ownsWorkspace = true) : IPreparedMutationSession
+    bool ownsWorkspace = true) : IPreparedMutationSession, IMutationBatchExecutor
 {
     internal sealed record Scope(string Project, string Framework, CompiledTestOutput Output, CompiledTestOutput? OrdinaryOutput = null);
     public IReadOnlySet<string> SupportedMutantIds { get; } = activeIds.Keys.ToHashSet(StringComparer.Ordinal);
-    public string? Detail => "Prepared built-in numeric boundaries; unsupported mutants retain source execution. Fresh host per attempt." + ParallelFallbackDetail;
+    internal IReadOnlyList<MutationCoverage>? Coverage { get; set; }
+    internal IReadOnlySet<int> BatchableIds { get; set; } = new HashSet<int>();
+    public string? Detail => "Prepared built-in numeric boundaries; unsupported mutants retain source execution. Fresh host per attempt." + ParallelFallbackDetail
+        + (Coverage == null ? "" : " Complete per-test coverage; disjoint pure boundaries share fresh-process coverage batches.");
     internal string? ParallelFallbackDetail { get; set; }
+    public async Task<IReadOnlyList<MutationResult>> ExecuteBatchAsync(IReadOnlyList<Mutant> selected, VerificationContext context, CancellationToken token)
+    {
+        var compatible = context.Request == request && !request.ConfirmKills;
+        foreach (var mutant in selected)
+        {
+            var selection = await context.TestSelector.SelectTestsAsync(mutant, token);
+            compatible &= selection.Filter == request.Filter && selection.Projects.SequenceEqual(request.Tests);
+        }
+        var groups = MutationCoverage.Pack(selected, activeIds, BatchableIds, compatible ? Coverage : null);
+        var results = new Dictionary<string, MutationResult>(StringComparer.Ordinal);
+        foreach (var group in groups)
+        {
+            if (token.IsCancellationRequested) break;
+            var batched = group.Length > 1 ? await ExecuteGroup(group, token) : null;
+            if (batched != null) foreach (var result in batched) results.Add(result.Mutant.Id, result);
+            else foreach (var mutant in group)
+            {
+                if (token.IsCancellationRequested) break;
+                var result = await ExecuteAsync(mutant, context, token);
+                results.Add(mutant.Id, result);
+                if (result.Outcome == MutationOutcome.TimedOut) break;
+            }
+        }
+        return selected.Where(m => results.ContainsKey(m.Id)).Select(m => results[m.Id]).ToArray();
+    }
+    private async Task<IReadOnlyList<MutationResult>?> ExecuteGroup(IReadOnlyList<Mutant> group, CancellationToken token)
+    {
+        if (Coverage == null || !await workspace.Unchanged(token)) return null;
+        var timer = Stopwatch.StartNew();
+        var active = group.Select(m => activeIds[m.Id]).ToHashSet();
+        var failures = active.ToDictionary(id => id, _ => new List<string>());
+        long testMs = 0;
+        using var hang = CancellationTokenSource.CreateLinkedTokenSource(token);
+        hang.CancelAfter(source.PreparedHangLimit);
+        try
+        {
+            for (var index = 0; index < scopes.Count; index++)
+            {
+                var scope = scopes[index];
+                using var capture = new CoverageCapture(environmentName, string.Join(",", active.Order()));
+                var run = await source.RunAssembly(scope.Output, scope.Project, request.Root, request.Filter, scope.Framework,
+                    capture.Environment, hang.Token, captureIdentity: true, settings: capture.Settings);
+                testMs += run.TestMs;
+                var observed = MutationCoverage.Read(capture.Report, run.Cases);
+                if (run.Outcome is not (MutationOutcome.Killed or MutationOutcome.Survived) || observed == null) return null;
+                var baseline = Coverage[index].Cases.ToDictionary(c => c.Id, StringComparer.Ordinal);
+                if (observed.Cases.Count != baseline.Count) return null;
+                foreach (var test in observed.Cases)
+                {
+                    if (!baseline.TryGetValue(test.Id, out var expected) || test.Name != expected.Name || test.Method != expected.Method
+                        || !test.Hits.IsSubsetOf(expected.Hits)) return null;
+                    var owners = expected.Hits.Where(active.Contains).ToArray();
+                    if (owners.Length > 1) return null;
+                    if (test.Outcome == "Failed")
+                    {
+                        if (owners.Length != 1 || !test.Hits.Contains(owners[0])) return null;
+                        failures[owners[0]].Add(test.Name);
+                    }
+                    else if (owners.Any(id => !test.Hits.Contains(id))) return null;
+                }
+            }
+            return group.Select(m => new MutationResult(m, failures[activeIds[m.Id]].Count > 0 ? MutationOutcome.Killed : MutationOutcome.Survived,
+                timer.ElapsedMilliseconds, TestMs: testMs, Detail: $"Executed in a disjoint coverage batch of {group.Count} mutations; duration and test time are shared by the batch.",
+                Classification: failures[activeIds[m.Id]].Count == 0 ? SurvivorClassification.Survived : null,
+                FailingTests: failures[activeIds[m.Id]].Count > 0 ? failures[activeIds[m.Id]].Take(10).ToArray() : null)).ToArray();
+        }
+        // A hung/aborted batch cannot attribute any member, including a hang.
+        // Drain it and retry each member through the existing single-mutant path.
+        catch (OperationCanceledException) { return null; }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Text.Json.JsonException) { return null; }
+    }
     public async Task<MutationResult> ExecuteAsync(Mutant mutant, VerificationContext context, CancellationToken token)
     {
         if (!activeIds.TryGetValue(mutant.Id, out var active) || context.Request != request) return await source.ExecuteAsync(mutant, context, token);

@@ -7,7 +7,10 @@ using Walker.Core;
 namespace Walker.Roslyn;
 
 public sealed record InstrumentationResult(IReadOnlyDictionary<string, string> Sources,
-    IReadOnlyDictionary<string, int> ActiveIds, string RuntimeSource);
+    IReadOnlyDictionary<string, int> ActiveIds, string RuntimeSource)
+{
+    public IReadOnlySet<int> BatchableIds { get; init; } = new HashSet<int>();
+}
 
 public sealed class MutationInstrumenter
 {
@@ -17,6 +20,7 @@ public sealed class MutationInstrumenter
         if (!SyntaxFacts.IsValidIdentifier(runtimeNamespace)) throw new ArgumentException("Invalid generated namespace.", nameof(runtimeNamespace));
         var sources = new Dictionary<string, string>(StringComparer.Ordinal);
         var ids = new Dictionary<string, int>(StringComparer.Ordinal);
+        var batchable = new HashSet<int>();
         foreach (var tree in compilation.SyntaxTrees)
         {
             token.ThrowIfCancellationRequested();
@@ -52,6 +56,21 @@ public sealed class MutationInstrumenter
                     || !SyntaxFactory.AreEquivalent(binary.Left, changed.Left) || !SyntaxFactory.AreEquivalent(binary.Right, changed.Right)) continue;
                 var id = ids.Count + 1;
                 ids.Add(mutant.Id, id);
+                // Start narrowly: a static expression-bodied comparison of numeric
+                // parameters/literals cannot itself write state or invoke user code.
+                if (binary.Parent is ArrowExpressionClauseSyntax { Parent: MethodDeclarationSyntax method }
+                    && method.Modifiers.Any(SyntaxKind.StaticKeyword)
+                    && method.Parent is ClassDeclarationSyntax type && type.BaseList == null
+                    && !type.Members.Any(m => m is FieldDeclarationSyntax or PropertyDeclarationSyntax or ConstructorDeclarationSyntax
+                        or EventDeclarationSyntax or EventFieldDeclarationSyntax)
+                    && model.GetDeclaredSymbol(type, token) is { } owner
+                    && owner.GetMembers(method.Identifier.ValueText).Length == 1
+                    && !owner.GetMembers().Any(m => m is IFieldSymbol or IPropertySymbol or IEventSymbol
+                        || m is IMethodSymbol { MethodKind: MethodKind.StaticConstructor }
+                        || m is IMethodSymbol { MethodKind: MethodKind.Constructor, IsImplicitlyDeclared: false })
+                    && binary.Left is IdentifierNameSyntax && binary.Right is LiteralExpressionSyntax
+                    && model.GetSymbolInfo(binary.Left, token).Symbol is IParameterSymbol)
+                    batchable.Add(id);
                 replacements[binary] = SyntaxFactory.ConditionalExpression(
                     SyntaxFactory.ParseExpression("global::" + runtimeNamespace + ".Runtime.IsActive(" + id + ")"),
                     SyntaxFactory.ParenthesizedExpression(changed.WithoutTrivia()),
@@ -64,16 +83,25 @@ public sealed class MutationInstrumenter
         var runtime = $$"""
             namespace {{runtimeNamespace}} {
                 internal static class Runtime {
-                    private static readonly int active = Read();
-                    private static int Read() {
-                        int value;
-                        return global::System.Int32.TryParse(global::System.Environment.GetEnvironmentVariable({{literal}}), out value) ? value : 0;
+                    private static readonly global::System.Collections.Generic.HashSet<int> active = Read();
+                    private static readonly bool collect = global::System.Environment.GetEnvironmentVariable("WALKER_COVERAGE_ENV") == {{literal}};
+                    private static global::System.Collections.Generic.HashSet<int> Read() {
+                        var result = new global::System.Collections.Generic.HashSet<int>();
+                        var text = global::System.Environment.GetEnvironmentVariable({{literal}}) ?? "";
+                        foreach (var item in text.Split(',')) { int value; if (global::System.Int32.TryParse(item, out value)) result.Add(value); }
+                        return result;
                     }
-                    internal static bool IsActive(int value) { return active == value; }
+                    internal static bool IsActive(int value) {
+                        if (collect) {
+                            var hit = global::System.AppDomain.CurrentDomain.GetData({{literal}} + "_coverage") as global::System.Action<int>;
+                            if (hit != null) hit(value);
+                        }
+                        return active.Contains(value);
+                    }
                 }
             }
             """;
-        return new(sources, ids, runtime);
+        return new(sources, ids, runtime) { BatchableIds = batchable };
     }
     private static bool Numeric(ITypeSymbol? type) => type?.SpecialType is SpecialType.System_Byte or SpecialType.System_SByte
         or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32
