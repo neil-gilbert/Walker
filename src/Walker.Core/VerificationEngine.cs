@@ -1,13 +1,15 @@
 using System.Diagnostics;
 namespace Walker.Core;
 public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscoverer discovery,
-    IMutationExecutor executor, IBaselineVerifier baseline)
+    IMutationExecutor executor, IBaselineVerifier baseline, Action<VerificationProgress>? progress = null)
 {
     public async Task<VerificationResult> VerifyAsync(VerificationRequest request, CancellationToken cancellationToken = default)
     {
         var clock = Stopwatch.StartNew();
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budget.CancelAfter(TimeSpan.FromSeconds(request.TimeoutSeconds));
+        budget.CancelAfter(request.DeadlineUtc is { } deadline
+            ? TimeSpan.FromTicks(Math.Max(0, (deadline - DateTimeOffset.UtcNow).Ticks))
+            : TimeSpan.FromSeconds(request.TimeoutSeconds));
         var token = budget.Token;
         IReadOnlyList<SourceChange> files = [];
         IReadOnlyList<Mutant> mutants = [];
@@ -22,8 +24,12 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
         var unresolvedBoolean = 0;
         PreparationSummary? preparation = null;
         var workersUsed = 1;
+        var requestedIds = (request.MutantIds ?? []).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var diagnostics = new List<VerificationDiagnostic>();
+        var currentPhase = "discovery";
         try
         {
+            progress?.Invoke(new("discovery", Detail: "Finding eligible production changes"));
             var phase = Stopwatch.StartNew();
             files = await changes.GetChangesAsync(request, token);
             timings = timings with { GitMs = phase.ElapsedMilliseconds };
@@ -32,11 +38,26 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             unresolved = found.UnresolvedArithmetic;
             unresolvedBoolean = found.UnresolvedBoolean;
             timings = timings with { ParsingMs = found.ParsingMs, DiscoveryMs = found.DiscoveryMs };
-            selected = Select(mutants, request.MaxMutants);
+            if (requestedIds.Length > 0)
+            {
+                var availableIds = mutants.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+                var unknown = requestedIds.Where(id => !availableIds.Contains(id)).ToArray();
+                if (unknown.Length > 0)
+                    throw new VerificationException("unknown_mutant", "selection", "Requested mutants are not eligible in the current diff: " + string.Join(", ", unknown),
+                        actions: ["rediscover_mutants"]);
+                if (requestedIds.Length > request.MaxMutants)
+                    throw new VerificationException("mutant_limit_exceeded", "selection", "Requested unique mutant IDs exceed --max-mutants; no requested mutant was executed.");
+                var wanted = requestedIds.ToHashSet(StringComparer.Ordinal);
+                selected = Select(mutants.Where(m => wanted.Contains(m.Id)), request.MaxMutants);
+            }
+            else selected = Select(mutants, request.MaxMutants);
+            progress?.Invoke(new("selection", Total: selected.Length, Detail: $"Selected {selected.Length} of {mutants.Count} candidates"));
             if (selected.Length > 0)
             {
                 phase.Restart();
                 baselineStarted = true;
+                currentPhase = "baseline";
+                progress?.Invoke(new("baseline", Total: selected.Length, Detail: "Building and testing ordinary code"));
                 try
                 {
                     await baseline.VerifyAsync(request, token);
@@ -44,11 +65,13 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                 }
                 finally { timings = timings with { BaselineMs = phase.ElapsedMilliseconds }; }
                 var context = new VerificationContext(request, new AllTestsSelector(request.Tests, request.Filter));
+                currentPhase = "execution";
                 IPreparedMutationSession? session = null;
                 try
                 {
                     if (executor is IBatchMutationPreparer preparer)
                     {
+                        progress?.Invoke(new("preparation", Total: selected.Length, Detail: "Preparing isolated mutation execution"));
                         phase.Restart();
                         try { session = await preparer.PrepareAsync(request, selected, token); }
                         finally
@@ -59,13 +82,19 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                         }
                     }
                     workersUsed = session?.WorkerCount ?? 1;
+                    progress?.Invoke(new("execution", Total: selected.Length, Detail: "Testing selected faults"));
                     if (session is IMutationBatchExecutor batch)
+                    {
                         results.AddRange(await batch.ExecuteBatchAsync(selected, context, token));
+                        progress?.Invoke(new("execution", results.Count, selected.Length, "Batch completed"));
+                    }
                     else foreach (var mutant in selected)
                     {
                         token.ThrowIfCancellationRequested();
+                        progress?.Invoke(new("execution", results.Count, selected.Length, $"Testing {mutant.Id} at {mutant.File}:{mutant.Line}"));
                         var result = await (session ?? executor).ExecuteAsync(mutant, context, token);
                         results.Add(result);
+                        progress?.Invoke(new("execution", results.Count, selected.Length, $"{mutant.Id}: {result.Outcome}"));
                         // TimedOut means the global budget expired; a per-mutant Hung result does not stop the run.
                         if (result.Outcome == MutationOutcome.TimedOut) break;
                     }
@@ -79,8 +108,13 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
                 error = cancellationToken.IsCancellationRequested
                     ? "Baseline cancelled before any mutant could start; no mutation evidence was collected."
                     : "Verification budget expired during the baseline before any mutant could start. The budget is smaller than one baseline run; use --filter to narrow the test scope or increase --timeout.";
+            diagnostics.Add(CancellationDiagnostic());
         }
-        catch (Exception ex) { infrastructureError = true; error = ex.Message; }
+        catch (Exception ex)
+        {
+            infrastructureError = true; error = ex.Message;
+            diagnostics.Add(VerificationDiagnostic.FromException(ex, currentPhase));
+        }
         var completed = results.Select(r => r.Mutant.Id).ToHashSet(StringComparer.Ordinal);
         foreach (var mutant in selected.Where(m => !completed.Contains(m.Id)))
             results.Add(new(mutant, MutationOutcome.Skipped, Detail: baselineStarted && !baselineCompleted
@@ -93,17 +127,32 @@ public sealed class VerificationEngine(IChangeProvider changes, IMutationDiscove
             : incomplete ? "incomplete" : results.Any(r => r.Outcome == MutationOutcome.Survived) ? "failed"
             : selected.Length == 0 ? "incomplete" : "passed";
         if (status == "incomplete" && token.IsCancellationRequested)
+        {
             error ??= "Verification budget exhausted or cancelled; available results are incomplete.";
+            if (!diagnostics.Any(d => d.Code is "cancelled" or "budget_exhausted" or "baseline_budget_exhausted"))
+                diagnostics.Add(CancellationDiagnostic());
+        }
         if (selected.Length == 0 && error == null && !token.IsCancellationRequested)
+        {
             error = "No eligible changed expressions; verification provides no mutation evidence.";
+            diagnostics.Add(VerificationDiagnostic.Create("no_eligible_expressions", "discovery", error));
+        }
+        progress?.Invoke(new("complete", results.Count(r => r.Outcome != MutationOutcome.Skipped), selected.Length, status));
         return new(status, request.Base, files.Count, mutants.Count, selected.Length, results, clock.ElapsedMilliseconds, timings, error, unresolved, request.Filter, unresolvedBoolean)
         {
+            Diagnostics = diagnostics,
+            Selection = new(requestedIds.Length == 0 ? "bounded" : "explicit", requestedIds),
             Files = SummarizeFiles(files, mutants, selected),
             ConfirmKills = request.ConfirmKills,
             Preparation = preparation,
             WorkersRequested = request.Workers,
             WorkersUsed = workersUsed
         };
+        VerificationDiagnostic CancellationDiagnostic() => (cancellationToken.IsCancellationRequested || !token.IsCancellationRequested)
+            && !(request.DeadlineUtc is { } deadline && deadline <= DateTimeOffset.UtcNow)
+            ? VerificationDiagnostic.Create("cancelled", currentPhase, error ?? "Verification cancelled; available results are incomplete.")
+            : VerificationDiagnostic.Create(currentPhase == "baseline" ? "baseline_budget_exhausted" : "budget_exhausted", currentPhase,
+                error ?? "Verification budget exhausted; available results are incomplete.", "increase_timeout", "review_test_scope");
     }
     private static FileVerificationSummary[] SummarizeFiles(IReadOnlyList<SourceChange> changes,
         IReadOnlyList<Mutant> mutants, IReadOnlyList<Mutant> selected)

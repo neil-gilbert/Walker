@@ -1,6 +1,6 @@
 ---
 name: walker-verification
-description: Verify tests for changed .NET production behaviour with the Walker CLI during an AI coding-agent verification loop. Use after modifying C# production code and passing baseline build/tests, before declaring the change verified; also use to investigate whether new tests constrain a changed boundary, equality, boolean, null, or arithmetic expression. Do not use for repository-wide mutation scoring, non-.NET work, or test-only changes without a corresponding production diff.
+description: Verify .NET behaviour with Walker during an AI coding-agent loop. Use after C# production changes and passing ordinary tests, to investigate survivors, verify proposed test improvements, or challenge a requirement or past bug. Do not use for repository-wide mutation scoring or non-.NET work.
 ---
 
 # Walker verification
@@ -13,9 +13,24 @@ Use targeted mutation verification to answer: **Do the tests distinguish meaning
 
 Run after changing C# production behaviour, especially comparisons, equality, null checks, boolean conditions, or numeric calculations, and after the normal build and relevant tests pass. Run before reporting verification complete. Re-run after improving tests or correcting an actual defect revealed by a survivor.
 
-Do not run repeatedly without a change or a concrete investigation. Documentation, formatting, generated files, and test-only changes usually provide no eligible production mutation target. For a test improvement aimed at existing production behaviour, select a base that includes the corresponding production change. Explain when there is no suitable diff instead of manufacturing a production edit.
+Do not run repeatedly without a change or a concrete investigation. Documentation, formatting, generated files, and test-only changes usually provide no eligible production mutation target. For ordinary test improvement verification, select a base that includes the corresponding production change. With a specific requirement or past bug, an explicit challenge can target unchanged code. Explain when neither scope is available instead of manufacturing a production edit.
 
-This tool intentionally limits work to changed production expressions. Do not substitute a full-project mutation score or promise that all behaviour has been verified.
+Ordinary verification limits work to changed production expressions; explicit challenges can target unchanged production source. Report evidence for selected faults rather than promising all behaviour has been verified.
+
+## Choose optional workflows
+
+Check the installed CLI's `--help` before using these flags. Keep ordinary bounded verification as the default; choose additional work for the task at hand.
+
+| Situation | Optional CLI choice |
+| --- | --- |
+| Remote/container execution, long or quiet tests, or the user wants live feedback | Add `--progress`. It emits phase changes and flushed heartbeats every 15 seconds to stderr, including elapsed time, remaining budget and active build/test commands. |
+| Survivors need investigation | Add `--investigate` for grouped survivor IDs and deterministic test hints. Review each original/replacement; grouping does not prove equivalence or severity. |
+| A known contract suggests a focused test improvement | Use `--test-patch <manifest.json>` with native `--isolate` to compare current tests with proposed tests before applying them. |
+| A requirement or historical bug needs a specific fault scenario, including unchanged code | Use `--challenge <manifest.json>` with native `--isolate`; choose `--base HEAD` when no production diff is needed. |
+
+For test-patch verification or explicit challenges, read [optional workflow manifests and evidence](references/optional-workflows.md). Both use source mode and share the invocation's time budget. They may be combined. The agent supplies contract reasoning and proposed source changes; the CLI performs execution checks without calling a model.
+
+With `--progress`, preserve stdout as the final JSON report and stream stderr to the caller. Redirecting stderr only to a file hides heartbeats from a remote inactivity watchdog: use the execution tool's separate live stderr/log capture when available. Set `--timeout` within the caller's hard runtime limit, leaving time for cancellation and cleanup. A heartbeat reports liveness, not an ETA or proof that a test is advancing; the timeout still bounds hung work.
 
 ## Prepare the scope
 
@@ -23,33 +38,17 @@ This tool intentionally limits work to changed production expressions. Do not su
 2. Identify the production `.csproj` that compiles the changed files and the test `.csproj` files that exercise that project. Inspect project references rather than guessing from directory names. Use repeated `--tests` for multiple test projects.
 3. Choose the base representing the start of the agent's change. If starting a task, record `git rev-parse HEAD` before editing. For an already committed change, use its parent or the agreed branch base. `HEAD~1` is a fallback, not automatically the right scope. Do not create or rewrite commits just to run verification.
 4. Inspect existing working-tree changes. The current implementation compares the merge base to the actual tracked working copy, so it includes staged and unstaged edits and preserves the bytes present before each mutation. It cannot distinguish an agent's edits from pre-existing user edits. Untracked new source files are not discovered: report this limitation rather than staging user files without authorization.
-5. Prepare the isolated worktree below, then run `dotnet build <production.csproj>` and `dotnet test <tests.csproj>` for the relevant projects inside that worktree. Fix or report ordinary failures before mutation verification. The verifier also runs a baseline inside its budget to avoid attributing pre-existing failures to a mutant.
+5. Ensure normal build and relevant tests passed, then use isolation below. Walker runs a fresh baseline inside the captured snapshot and its budget; baseline failures are execution problems, not kills.
 
 For several production projects, verify each project with its relevant tests and record each result. Keep the aggregate runtime within the user's overall limit; the timeout applies separately to each invocation.
 
-## Prepare an isolated worktree
+## Prepare isolation
 
-**Run every Walker invocation in a dedicated disposable Git worktree, including retries.** The agent's working checkout is the source of the change being verified; Walker must never mutate it. If isolation cannot be prepared, return the blocker instead of running in the source checkout.
+Prefer native `--isolate` when the installed tool's help lists it. Invoke it from the source checkout: Walker captures HEAD, the resolved base, staged and unstaged bytes, and nonignored untracked inputs into a fresh private worktree. Keep inputs steady until stderr reports “Isolated snapshot ready”; subsequent edits in the source checkout do not affect that run. Every invocation owns a separate snapshot and output directory, including switch-mode source fallback.
 
-1. Record the source repository's absolute root, current HEAD SHA, resolved base SHA, status, and current tracked diff. Capture a stable snapshot while edits are paused. Create a fresh detached worktree at that HEAD, outside the source checkout; using the default branch or base commit would omit the agent's change.
-2. Transfer the current tracked file contents, including staged and unstaged edits, into the worktree. A binary patch against HEAD preserves the combined working-copy state without changing the source index. Keep the snapshot and reports in a separate artifact directory outside both checkouts. For example, from the source repository root:
+Read `isolation` in the final JSON for the snapshot fingerprint, effective scope, durable report/log paths and cleanup state. Normal cleanup removes the owned worktree before emitting the report. Preserve a retained worktree and report its path when cleanup fails. A pending restore journal in the source checkout is a blocker; isolation never recovers or overwrites it.
 
-   ```bash
-   source_root=$(git rev-parse --show-toplevel)
-   source_head=$(git rev-parse HEAD)
-   base_sha=$(git rev-parse --verify "<chosen-base>^{commit}")
-   artifact_dir=$(mktemp -d "${TMPDIR:-/tmp}/walker-artifacts.XXXXXX")
-   worktree_path="$artifact_dir/worktree"
-   git -C "$source_root" diff --binary --no-ext-diff --no-textconv HEAD -- > "$artifact_dir/source.patch"
-   git -C "$source_root" worktree add --detach "$worktree_path" "$source_head"
-   git -C "$worktree_path" apply --index --binary "$artifact_dir/source.patch"
-   ```
-
-   Applying with `--index` in the disposable worktree keeps newly staged source files tracked there; the source index remains untouched. Check each command's success before continuing. Skip patch application when the patch is empty. Resolve the base before switching directories and use `base_sha` for verification so relative refs retain their original meaning.
-3. Copy required untracked source, tests, and configuration into the same repository-relative paths, preserving contents. Use a NUL-delimited inventory such as `git ls-files --others --exclude-standard -z`. Recreate ignored local configuration only when required for the build; restore dependencies and build outputs inside the worktree. Keep writable files and build paths independent of the source checkout; inspect symlinks, submodules, and external project references for paths back into it. Report unsupported isolation rather than sharing writable source or output directories.
-4. Compare the worktree's tracked diff against HEAD with the captured patch and verify copied inputs match the snapshot before running. The source checkout's HEAD, index, and file contents must remain untouched. The CLI still does not discover untracked production files; copying them supports builds but does not add mutation coverage. Report that gap.
-
-Run builds, tests, tool restoration, and Walker from `worktree_path`, using project paths and configuration from that snapshot. Use an absolute path for a compiled verifier located elsewhere. After intentional test or production fixes in the agent's source checkout, prepare a fresh snapshot and worktree for the next run with the same base. Never copy mutation-run source changes back into the agent's checkout.
+Native isolation conservatively refuses symlinks, submodules, external or ignored required inputs, explicit wildcard item paths, conditional/custom MSBuild targets/imports, and custom output paths. It isolates repository files and conventional build outputs; arbitrary test code and shared external resources are not sandboxed. Do not silently retry without isolation. For older Walker versions or unsupported layouts, follow [manual isolation](references/manual-isolation.md) or report the blocker.
 
 ## Locate the tool
 
@@ -66,14 +65,14 @@ If the tool has not been installed but its source is available, build the verifi
 ```bash
 dotnet build <verifier-repo>/src/Walker.Cli/Walker.Cli.csproj
 
-dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify \
+dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify --isolate \
   --base <base-ref-or-sha> \
   --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj \
   --timeout 60 --max-mutants 20 --format json
 ```
 
-Run verification from inside the **isolated target worktree**. CLI project and test paths are relative to the current directory; configured exclude globs match repository-relative paths. Do not assume a package named `Walker.Cli` on a public feed is this implementation. Use the supplied source or a trusted installed tool.
+With native isolation, run from the source checkout. For manual isolation, run from its dedicated worktree. CLI project and test paths are relative to the current directory; configured exclude globs match repository-relative paths. Do not assume a package named `Walker.Cli` on a public feed is this implementation. Use the supplied source or a trusted installed tool.
 
 If .NET, Git, package restore, or the verifier is unavailable, report the blocker. Do not claim mutation verification passed.
 
@@ -83,25 +82,27 @@ The current Walker CLI requires the .NET 10 runtime; building its source require
 
 Keep the configured mode unless the user requests a change or a measured comparison justifies one. The default is `--mutant-mode source` (`"mutantMode": "source"`). Source mode automatically uses baseline metadata reuse and adaptive preferred-test planning; they need no extra flags. Preferred groups must pass on original source, and passing preferred attempts fall back to the complete requested scope before a mutant can survive.
 
-- `--mutant-mode switch` / `"mutantMode": "switch"` is experimental. It prepares selected built-in numeric relational boundaries in a scratch copy and verifies the complete requested baseline again with no mutation active. Simple stateless boundaries with assertion-only tests and complete, disjoint per-test coverage can share a fresh-process batch. Missing/ambiguous coverage, changed paths and batch errors retain individual retries; other prepared boundaries run individually. `--confirm-kills` uses individual execution. Consider switching for several eligible boundaries when repeated builds dominate. Preparation and confirmation consume the same timeout. Unsupported operators, decimal/nullable/dynamic operands, expression trees, overloaded conversions, custom source generators or unproved build layouts retain source mutation. Failed preparation also falls back; it is not a batch of compile errors. Keep the dedicated outer worktree because source fallback can still mutate there.
+- `--mutant-mode switch` / `"mutantMode": "switch"` is experimental. It prepares selected built-in numeric relational boundaries in a scratch copy and verifies the complete requested baseline again with no mutation active. Simple stateless boundaries with assertion-only tests and complete, disjoint per-test coverage can share a fresh-process batch. Missing/ambiguous coverage, changed paths and batch errors retain individual retries; other prepared boundaries run individually. `--confirm-kills` uses individual execution. Consider switching for several eligible boundaries when repeated builds dominate. Preparation and confirmation consume the same timeout. Unsupported operators, decimal/nullable/dynamic operands, expression trees, overloaded conversions, custom source generators or unproved build layouts retain source mutation. Failed preparation also falls back; it is not a batch of compile errors. Keep native isolation or the dedicated manual worktree because source fallback can still mutate there.
 - `--compiled-tests` / `"compiledTests": true` is a separate experimental source-mode option. It probes project/DLL baseline parity and can reuse verified DLLs for full retries after preferred tests. Its added setup regressed the measured workloads, so leave it off unless configured or testing that path. Switch mode already uses the assembly runner; combining these options is rejected.
 
-- `--workers 2` / `"workers": 2` is an experimental switch-mode option; the default is one. Use it only when the suite's databases, ports and other external resources support concurrent test hosts. Workers own separate output/content copies, working directories, temp and TRX paths. Ordinary and inactive prepared baselines run concurrently and must match the original test identities. Fewer than two eligible mutants or a rejected parallel baseline retain one worker. Source fallback waits for active workers and stays serial. Keep the dedicated outer worktree.
+- `--workers 2` / `"workers": 2` is an experimental switch-mode option; the default is one. Use it only when the suite's databases, ports and other external resources support concurrent test hosts. Workers own separate output/content copies, working directories, temp and TRX paths. Ordinary and inactive prepared baselines run concurrently and must match the original test identities. Fewer than two eligible mutants or a rejected parallel baseline retain one worker. Source fallback waits for active workers and stays serial. Keep native isolation or the dedicated manual worktree.
 
-Switching improved the eligible twenty-boundary fixture, but did not improve unsupported workloads and repeatedly slowed Payments. Choose experimental options from measured eligibility and total time, including preparation, rather than assuming they make every run faster. Two workers also increase concurrent memory demand. For optimisation work in Walker's source checkout, read `docs/mutation-optimisation-plan.md` and `docs/performance.md` for the current gates, operator support and measurements. These repository documents are not part of a copied standalone skill. Concurrent CLI invocations still require separate worktrees.
+Switching improved the eligible twenty-boundary fixture, but did not improve unsupported workloads and repeatedly slowed Payments. Choose experimental options from measured eligibility and total time, including preparation, rather than assuming they make every run faster. Two workers also increase concurrent memory demand. For optimisation work in Walker's source checkout, read `docs/mutation-optimisation-plan.md` and `docs/performance.md` for the current gates, operator support and measurements. These repository documents are not part of a copied standalone skill. Native isolation gives concurrent invocations separate worktrees; manual invocations must do the same.
 
 ## Execute and capture JSON
 
 Default to a 60-second budget and at most 20 mutants unless repository configuration or the user specifies another limit. JSON is the interface for reasoning and automation. Keep process logs out of the report stream.
 
 ```bash
+artifact_dir=$(mktemp -d "${TMPDIR:-/tmp}/walker-reports.XXXXXX")
+base_sha=$(git rev-parse --verify "<chosen-base>^{commit}")
 report_path="$artifact_dir/report.json"
 log_path="$artifact_dir/process.log"
-if (cd "$worktree_path" && walker verify \
+if walker verify --isolate \
   --base "$base_sha" \
   --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj \
-  --timeout 60 --max-mutants 20 --format json) > "$report_path" 2> "$log_path"; then
+  --timeout 60 --max-mutants 20 --format json > "$report_path" 2> "$log_path"; then
   verification_exit=0
 else
   verification_exit=$?
@@ -128,7 +129,9 @@ Also record `workersRequested` and `workersUsed`. Effective coverage batches can
 | 2 | Build, test, discovery, or infrastructure error | Inspect `error` and result `detail`. Fix or report the execution problem; do not infer missing assertions. |
 | 3 | Verification incomplete | Report missing evidence, completed results, and timeout/skips. Do not call this a pass. |
 
-If `error` says the baseline exhausted the budget before any mutant started, inspect `timings.baselineMs`. Narrow the relevant suite with `--filter` or increase `--timeout`; skipped mutants have no execution evidence. Baseline failure and cancellation also retain elapsed baseline time.
+Use run-level and per-result `diagnostics[].code`, `phase` and `actions` before reading human messages. Unknown codes or actions fall back to status, exit code and outcomes; do not execute action strings as shell commands. `baseline_budget_exhausted` means inspect `timings.baselineMs`; `budget_exhausted` can include isolation setup. For either, inspect the effective scope and choose a justified `--filter` or larger `--timeout`; skipped mutants have no execution evidence. Baseline failure and cancellation also retain elapsed baseline time.
+
+Other recovery codes: `invalid_argument`/`invalid_configuration` require correcting scope; `no_executed_tests` requires checking the filter and test discovery; `unknown_mutant` requires rediscovery; `source_changed`/`snapshot_changed` requires a fresh snapshot. `restore_conflict`, `source_recovery_pending`, and `isolation_cleanup_failed` require inspecting retained evidence without overwriting user changes. `isolation_unsupported` requires supported isolation or a blocker. Never broaden a test filter automatically to conceal missing evidence.
 
 A zero-candidate run is incomplete because it provides no mutation evidence. A timeout or cancellation is incomplete even if completed mutants were killed. An infrastructure error takes precedence over incompleteness; incomplete runs may also contain survivors worth investigating.
 
@@ -154,13 +157,22 @@ For each survivor:
 4. Decide whether the cause is missing test coverage, a weak assertion, an untested boundary condition, an equivalent mutation, intentionally unspecified behaviour, or incorrect production behaviour.
 5. Add a focused test with a meaningful assertion when the contract specifies a missing behaviour. Correct production code only when evidence establishes that it violates that contract.
 6. If equivalent or intentionally accepted, record the reason and discriminating-input analysis. The CLI has no built-in acceptance flag; classifications live outside execution and do not turn exit 1 into exit 0.
-7. Run normal build/tests again, then repeat verification with the same base and comparable bounds.
+7. Run normal build/tests again. If help lists `--mutant`, focus the rerun with repeated `--mutant <survivor-id>` using the same base, project and test scope. Each run still performs a fresh baseline and full requested tests for survival. IDs come from current discovery: test-only edits preserve them; production span/expression changes can invalidate them. Unknown IDs and unique selections exceeding `--max-mutants` fail before baseline. Do not reinterpret an old ID as a line number. Older versions without this flag require an ordinary bounded rerun.
+
+```bash
+walker verify --isolate --base "$base_sha" \
+  --project src/Payments/Payments.csproj \
+  --tests tests/Payments.Tests/Payments.Tests.csproj \
+  --mutant <survivor-id> --timeout 60 --max-mutants 20 --format json
+```
+
+When present, read `selection.kind` and `selection.requestedIds`. A focused pass proves only those selected IDs. After improving tests, run the ordinary bounded selection again to check the broader changed scope.
 
 Example: if equality is explicitly permitted, add a test asserting `CanPurchase(10m, 10m)` is true. Do not weaken or rewrite the production comparison to satisfy the verifier. If equality is intentionally unspecified, record that decision rather than inventing an equality contract.
 
 ## Source safety and operating limits
 
-Source-mode execution modifies one worktree source file at a time, then restores its exact original bytes in cleanup. Supported switch mutants execute from prepared scratch outputs; unsupported mutants use the source path. Switch mode checks input hashes and refuses stale prepared execution if build inputs change. The CLI handles Ctrl+C with cancellation; wait for it and its child build/test processes to exit before inspecting source or removing the worktree. Keep the snapshot fixed while verification runs; make intentional fixes in the source checkout between runs. Give concurrent invocations separate worktrees and output paths.
+Source-mode execution modifies one worktree source file at a time, then restores its exact original bytes in cleanup. Supported switch mutants execute from prepared scratch outputs; unsupported mutants use the source path. Switch mode checks input hashes and refuses stale prepared execution if build inputs change. The CLI handles Ctrl+C with cancellation; wait for it and its child build/test processes to exit before inspecting source or removing the worktree. Keep the verification snapshot fixed; native isolation permits intentional source-checkout edits after capture. Give concurrent invocations separate worktrees and output paths.
 
 Normal process errors, test failures, cancellation, and budget expiry should restore source. Forced process termination or host failure can leave mutations behind in the disposable worktree. Compare it against the captured snapshot after execution and report restoration failures; never use its residual diff as a proposed fix. Keep an abnormal run's worktree and artifacts for investigation. Recovery must not discard or restore files in the agent's source checkout.
 
@@ -178,4 +190,4 @@ Use wording such as:
 
 For incomplete verification, say so explicitly and identify what remains unverified. Never call a survivor a production bug without investigating its contract.
 
-After the calling agent has consumed the result, retain the report and logs at the returned artifact paths and remove only the disposable worktree created for this run with `git worktree remove <worktree-path>`. Check its diff against the snapshot first. If removal refuses because it is dirty, retain it and report the path; do not force cleanup or discard changes. Never remove a pre-existing or unrelated worktree.
+Retain the returned report and logs. Native isolation already performs ownership-checked cleanup: `removed` needs no further removal; `retained` requires inspection and must not be force-deleted. Forced termination can leave a private worktree and readable `session.json`, captured inputs and process log without a final report; source checkout bytes remain independent. For manual isolation, follow its reference cleanup instructions.

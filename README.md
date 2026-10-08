@@ -77,7 +77,7 @@ dotnet build Walker.sln
 dotnet test Walker.sln
 
 # Run from the target Git repository; use the absolute path to the verifier DLL.
-dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify \
+dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify --isolate \
   --base HEAD~1 \
   --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj \
@@ -85,8 +85,12 @@ dotnet /path/to/verifier/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify 
 ```
 
 - Use `--filter "FullyQualifiedName~EpsDebitTests"` to run a focused subset of a slow suite. The same filter applies to the baseline and every mutant; a filter matching no executed tests is an error. JSON echoes the effective scope as `testFilter` (schema version 1). CLI `--filter` overrides the optional `"filter"` in `walker.json`.
+- `--isolate` verifies a captured private worktree, preserving the source checkout and its build outputs. JSON records durable artifacts, snapshot identity, effective scope and cleanup state. Unsupported build layouts fail explicitly; see the [agent protocol](docs/agent-protocol.md).
+- Repeat `--mutant <id>` to rerun particular survivors after improving tests. IDs must still exist in current discovery, and the unique selection must fit `--max-mutants`. Every rerun has a fresh baseline; a focused pass proves only the selected scope.
+- Structured run/result `diagnostics` provide stable codes and suggested actions. Version 1 stays compatible with existing consumers; the [JSON schema](docs/verification-report.schema.json) documents the additive contract. Explicit `--format json` applies even to startup errors, regardless of argument order.
 - Repeat `--tests` to defend more than one test project.
 - `--format text` gives the short field report; `--verbose` adds timings.
+- `--progress` (or `"progress": true`) emits live phases and a flushed heartbeat every 15 seconds to stderr, with elapsed time, remaining budget and active build/test work. Stream stderr on remote/container runs so inactivity monitors receive it; stdout remains one JSON report. Heartbeats indicate liveness; `--timeout` still bounds the run.
 - JSON includes a `files` array with each changed production file, its unique changed-line count, and discovered/selected mutant counts. Text reports name files with no candidates. A passing run provides evidence only for selected expressions; files with zero candidates remain unverified.
 - JSON always includes timings and uses `schemaVersion: 1`.
 
@@ -120,6 +124,24 @@ Not one test checked a purchase where the balance is *exactly* equal to the pric
 
 The [agent skill](skills/walker-verification/SKILL.md) tells your agent when to run Walker, how to choose scope and how to investigate survivors. Copy its directory into your agent's skills directory (for Codex, `.agents/skills/walker-verification/`), or tell the agent to follow the file.
 
+### Optional agent workflows
+
+Ordinary verification stays bounded and deterministic. Choose extra work per invocation:
+
+| Option | Use it for |
+| --- | --- |
+| `--investigate` | Group surviving faults by file/member/operator and get concrete investigation hints. |
+| `--challenge <manifest.json>` | Test explicit requirement or past-bug fault scenarios, including unchanged production code. |
+| `--test-patch <manifest.json>` | Compare original tests with a proposed test patch; report faults newly caught by confirmed test failures. |
+
+Challenges and test patches require `--isolate` and source mode. The agent supplies the fault/test manifests and intended contract; Walker runs the checks without a model. Proposed tests stay in the private snapshot and are restored before cleanup; the report preserves the proposal for review. Both phases share the same timeout. See [manifest examples and evidence interpretation](skills/walker-verification/references/optional-workflows.md).
+
+```bash
+walker verify --isolate --progress --base HEAD \
+  --project Payments/Payments.csproj --tests Payments.Tests/Payments.Tests.csproj \
+  --challenge /tmp/faults.json --test-patch /tmp/tests.json --format json --timeout 120
+```
+
 ---
 
 ## 🏚️ Setting up camp (local/global tool)
@@ -131,7 +153,7 @@ dotnet pack src/Walker.Cli -c Release -o artifacts
 # In the target repository:
 dotnet new tool-manifest # only if there isn't one already
 dotnet tool install Walker.Cli --add-source /path/to/verifier/artifacts --version 0.1.0
-dotnet tool run walker -- verify --project src/Payments/Payments.csproj \
+dotnet tool run walker -- verify --isolate --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj --format json
 ```
 
@@ -149,6 +171,7 @@ Put an optional `walker.json` in the current directory:
   "project": "src/Payments/Payments.csproj",
   "tests": ["tests/Payments.Tests/Payments.Tests.csproj"],
   "filter": "FullyQualifiedName~PaymentTests",
+  "isolate": true,
   "maxMutants": 20,
   "timeoutSeconds": 60,
   "exclude": ["**/*.Designer.cs", "**/Generated/**"]

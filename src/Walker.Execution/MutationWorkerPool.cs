@@ -142,8 +142,8 @@ internal sealed class MutationWorkerPool(PreparedMutationSession serial, IReadOn
             if (!compatible || !SupportedMutantIds.Contains(selected[cursor].Id))
             {
                 try { results[cursor] = await serial.ExecuteAsync(selected[cursor], context, token); }
-                catch (OperationCanceledException) { results[cursor] = new(selected[cursor], MutationOutcome.TimedOut); }
-                catch (Exception ex) { results[cursor] = new(selected[cursor], MutationOutcome.TestError, Detail: ex.Message); }
+                catch (OperationCanceledException) { results[cursor] = new(selected[cursor], MutationOutcome.TimedOut) { Diagnostics = [VerificationDiagnostic.Create("cancelled", "execution", "Worker execution cancelled.")] }; }
+                catch (Exception ex) { results[cursor] = new(selected[cursor], MutationOutcome.TestError, Detail: ex.Message) { Diagnostics = [VerificationDiagnostic.FromException(ex, "execution")] }; }
                 if (results[cursor++]!.Outcome == MutationOutcome.TimedOut) break;
                 continue;
             }

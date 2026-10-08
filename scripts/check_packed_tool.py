@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the packed CLI's baseline observer from outside the source checkout."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,10 +24,16 @@ def main():
     parser.add_argument('--compiled-tests', action='store_true', help='Also exercise verified DLL probes from the installed tool')
     parser.add_argument('--mutant-mode', choices=['source', 'switch'], default='source', help='Exercise compile-once switching through installed-tool configuration')
     parser.add_argument('--workers', type=int, choices=[1, 2], default=1, help='Exercise installed isolated worker execution')
+    parser.add_argument('--isolate', action='store_true', help='Verify a native isolated snapshot')
+    parser.add_argument('--focused-rerun', action='store_true', help='Add an equality assertion and rerun the reported survivor ID')
+    parser.add_argument('--agent-workflows', action='store_true', help='Exercise progress, investigation and paired explicit-fault/test-patch verification')
+    parser.add_argument('--evidence-directory', type=Path, help='Retain reports and fixture source hashes')
     args = parser.parse_args()
     if args.compiled_tests and args.mutant_mode == 'switch':
         parser.error('Switch mode includes DLL checks; omit --compiled-tests')
     if args.workers == 2 and args.mutant_mode != 'switch': parser.error('Two workers require switch mode')
+    if args.agent_workflows and (not args.isolate or args.mutant_mode != 'source' or args.compiled_tests):
+        parser.error('Agent workflow smoke requires --isolate and ordinary source mode')
     sdk = args.dotnet.resolve()
     target_sdk = args.target_dotnet.resolve() if args.target_dotnet else sdk
     env = dict(os.environ)
@@ -41,7 +48,7 @@ def main():
             specification = ET.fromstring(package.read(next(name for name in package.namelist() if name.endswith('.nuspec'))))
             identity = next(e.text for e in specification.iter() if e.tag.split('}')[-1] == 'id')
             version = next(e.text for e in specification.iter() if e.tag.split('}')[-1] == 'version')
-        config = root / 'NuGet.Config'
+        config = root / 'tool-install.config'
         config.write_text('<configuration><packageSources><clear /><add key="local" value="'
                           + escape(str(args.package.resolve().parent), {'"': '&quot;'}) + '" /></packageSources></configuration>')
         install_env = dict(env)
@@ -92,7 +99,7 @@ def main():
 
         def run(*command):
             return subprocess.run(command, cwd=work, env=env, text=True, stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT, timeout=150)
+                                  stderr=subprocess.PIPE, timeout=150)
 
         for command in [('git', 'init'), ('git', 'config', 'user.email', 'test@example.invalid'),
                         ('git', 'config', 'user.name', 'Test'), ('git', 'add', '.'),
@@ -103,14 +110,20 @@ def main():
         for command in [('git', 'add', '.'), ('git', 'commit', '-m', 'after')]:
             result = run(*command)
             assert result.returncode == 0, result.stdout
-        result = run(str(installed / ('walker.exe' if os.name == 'nt' else 'walker')), 'verify', '--base', 'HEAD~1',
+        executable = str(installed / ('walker.exe' if os.name == 'nt' else 'walker'))
+        isolation_flags = ['--isolate'] if args.isolate else []
+        result = run(executable, 'verify', *isolation_flags, *(['--progress', '--investigate'] if args.agent_workflows else []), '--base', 'HEAD~1',
                      '--project', 'Payments/Payments.csproj', '--tests', 'Payments.Tests/Payments.Tests.csproj',
                      '--max-mutants', str(args.workers), '--timeout', '120', '--format', 'json')
-        assert result.returncode == 1, result.stdout
+        assert result.returncode == 1, result.stdout + result.stderr
         report = json.loads(result.stdout)
         assert report['mutantsExecuted'] == args.workers and report['survived'] == args.workers, report
         assert report['workersRequested'] == args.workers and report['workersUsed'] == args.workers, report
         assert source.read_bytes() == original, 'Source bytes were not restored'
+        if args.isolate:
+            assert report['isolation']['cleanupState'] == 'removed', report
+            assert Path(report['isolation']['reportPath']).is_file(), report
+            assert not Path(report['isolation']['worktreePath']).exists(), report
         if args.mutant_mode == 'switch':
             assert report['preparation']['supported'] == args.workers and report['preparation']['fallback'] == 0, report
             assert all(r['buildMs'] == 0 for r in report['results']), report
@@ -123,7 +136,58 @@ def main():
                 assert sum(command[0] == 'msbuild' and any('TargetPath' in arg for arg in command) for command in commands) == 2, commands
             elif args.mutant_mode == 'switch':
                 assert sum(command[0] == 'test' and command[1].endswith('.dll') for command in commands) == (14 if args.workers == 2 else 4), commands
-        print('Packed CLI passed the two-framework baseline, observer deployment and source-restoration checks.')
+        evidence = {'initial': report, 'sourceSha256': hashlib.sha256(original).hexdigest()}
+        if args.agent_workflows:
+            assert '[walker progress]' in result.stderr, result.stderr
+            assert report['investigation']['gaps'][0]['mutantIds'] == [report['survivors'][0]['id']], report
+            fault = report['survivors'][0]
+            faults_path = root / 'faults.json'
+            faults_path.write_text(json.dumps({'schemaVersion': 1, 'challenges': [{
+                key: fault[key] for key in ('file', 'sourceHash', 'spanStart', 'original', 'replacement')
+            } | {'concern': 'Rejecting exact balance', 'expectedBehaviour': 'Exact balance permits purchase'}]}))
+            patch_path = root / 'tests.json'
+            patch_path.write_text(json.dumps({'schemaVersion': 1, 'contract': 'Exact balance permits purchase', 'files': [{
+                'file': 'Payments.Tests/BoundaryTests.cs', 'originalHash': None,
+                'content': 'using Xunit; namespace Payments.Tests; public class BoundaryTests { [Fact] public void ExactBalance() => Assert.True(new PaymentService().CanPurchase(10, 10)); }'
+            }]}))
+            tests_before = (work / 'Payments.Tests/PaymentTests.cs').read_bytes()
+            paired = run(executable, 'verify', '--isolate', '--progress', '--investigate', '--base', 'HEAD',
+                '--project', 'Payments/Payments.csproj', '--tests', 'Payments.Tests/Payments.Tests.csproj',
+                '--challenge', str(faults_path), '--test-patch', str(patch_path), '--max-mutants', '1', '--timeout', '120', '--format', 'json')
+            assert paired.returncode == 0, paired.stdout + paired.stderr
+            improvement = json.loads(paired.stdout)
+            assert improvement['testImprovement']['status'] == 'verified', improvement
+            assert improvement['testImprovement']['before']['survived'] == 1, improvement
+            assert improvement['results'][0]['mutant']['operator'] == 'CustomFault', improvement
+            assert improvement['results'][0]['killConfirmed'] is True, improvement
+            assert improvement['isolation']['cleanupState'] == 'removed', improvement
+            assert source.read_bytes() == original, 'Paired workflow changed production source'
+            assert (work / 'Payments.Tests/PaymentTests.cs').read_bytes() == tests_before, 'Paired workflow changed original tests'
+            assert not (work / 'Payments.Tests/BoundaryTests.cs').exists(), 'Proposed test escaped isolation'
+            evidence['testImprovement'] = improvement
+        if args.focused_rerun:
+            assert args.workers == 1, 'Focused smoke expects one boundary survivor'
+            tests = work / 'Payments.Tests/PaymentTests.cs'
+            tests.write_text(tests.read_text().replace('public sealed class PaymentTests\n{',
+                'public sealed class PaymentTests\n{\n    [Fact] public void EqualityCanPurchase() => Assert.True(new PaymentService().CanPurchase(10, 10));'))
+            mutant_id = report['survivors'][0]['id']
+            focused = run(executable, 'verify', *isolation_flags, '--base', 'HEAD~1',
+                '--project', 'Payments/Payments.csproj', '--tests', 'Payments.Tests/Payments.Tests.csproj',
+                '--mutant', mutant_id, '--mutant', mutant_id, '--max-mutants', '1', '--timeout', '120',
+                '--confirm-kills', '--format', 'json')
+            assert focused.returncode == 0, focused.stdout + focused.stderr
+            rerun = json.loads(focused.stdout)
+            assert rerun['selection'] == {'kind': 'explicit', 'requestedIds': [mutant_id]}, rerun
+            assert rerun['mutantsExecuted'] == 1 and rerun['killed'] == 1, rerun
+            assert rerun['results'][0]['killConfirmed'] is True, rerun
+            assert source.read_bytes() == original, 'Focused rerun changed original source'
+            if args.isolate: assert rerun['isolation']['cleanupState'] == 'removed', rerun
+            evidence['focused'] = rerun
+        if args.evidence_directory:
+            args.evidence_directory.mkdir(parents=True, exist_ok=True)
+            (args.evidence_directory / 'packed-agent-loop.json').write_text(json.dumps(evidence, indent=2))
+        print('Packed CLI passed the two-framework baseline, observer deployment and source-restoration checks'
+              + (' plus optional agent workflows.' if args.agent_workflows else '.'))
 
 
 if __name__ == '__main__':

@@ -92,7 +92,8 @@ internal sealed class PreparedMutationSession(DotnetMutationExecutor source, Mut
         long testMs = 0;
         try
         {
-            if (!await workspace.Unchanged(token)) return new(mutant, MutationOutcome.TestError, timer.ElapsedMilliseconds, Detail: "Build inputs changed after preparation; refusing stale prepared execution.");
+            if (!await workspace.Unchanged(token)) return new(mutant, MutationOutcome.TestError, timer.ElapsedMilliseconds, Detail: "Build inputs changed after preparation; refusing stale prepared execution.")
+            { Diagnostics = [VerificationDiagnostic.Create("source_changed", "execution", "Build inputs changed after preparation; refusing stale prepared execution.", "rediscover_mutants")] };
             var selection = await context.TestSelector.SelectTestsAsync(mutant, token);
             if (selection.Filter != request.Filter || !selection.Projects.SequenceEqual(request.Tests)) return await source.ExecuteAsync(mutant, context, token);
             using var hang = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -106,17 +107,21 @@ internal sealed class PreparedMutationSession(DotnetMutationExecutor source, Mut
                         new Dictionary<string, string?> { [environmentName] = active.ToString(System.Globalization.CultureInfo.InvariantCulture) }, hang.Token);
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)
-                { return new(mutant, MutationOutcome.Hung, timer.ElapsedMilliseconds, TestMs: timer.ElapsedMilliseconds, Detail: "Prepared tests exceeded the per-mutant hang limit."); }
+                { return new(mutant, MutationOutcome.Hung, timer.ElapsedMilliseconds, TestMs: timer.ElapsedMilliseconds, Detail: "Prepared tests exceeded the per-mutant hang limit.")
+                    { Diagnostics = [VerificationDiagnostic.Create("mutant_hung", "execution", "Prepared tests exceeded the per-mutant hang limit; counted as detected.")] }; }
                 testMs += run.TestMs;
                 if (run.Outcome == MutationOutcome.Survived) continue;
                 var result = new MutationResult(mutant, run.Outcome, timer.ElapsedMilliseconds, TestMs: testMs, Detail: run.Detail,
-                    FailingTests: run.Outcome == MutationOutcome.Killed ? (run.Failures ?? []).Select(f => f.Name).ToArray() : null);
+                    FailingTests: run.Outcome == MutationOutcome.Killed ? (run.Failures ?? []).Select(f => f.Name).ToArray() : null)
+                { Diagnostics = DotnetMutationExecutor.TestDiagnostics(run) };
                 return await source.ConfirmResultAsync(result, context, run, token, scope.OrdinaryOutput);
             }
             return new(mutant, MutationOutcome.Survived, timer.ElapsedMilliseconds, TestMs: testMs, Classification: SurvivorClassification.Survived);
         }
-        catch (OperationCanceledException) { return new(mutant, MutationOutcome.TimedOut, timer.ElapsedMilliseconds, TestMs: testMs, Detail: "Prepared execution cancelled; original source was untouched."); }
-        catch (Exception ex) { return new(mutant, MutationOutcome.TestError, timer.ElapsedMilliseconds, TestMs: testMs, Detail: ex.Message); }
+        catch (OperationCanceledException) { return new(mutant, MutationOutcome.TimedOut, timer.ElapsedMilliseconds, TestMs: testMs, Detail: "Prepared execution cancelled; original source was untouched.")
+            { Diagnostics = [VerificationDiagnostic.Create("cancelled", "execution", "Prepared execution cancelled; original source was untouched.")] }; }
+        catch (Exception ex) { return new(mutant, MutationOutcome.TestError, timer.ElapsedMilliseconds, TestMs: testMs, Detail: ex.Message)
+            { Diagnostics = [VerificationDiagnostic.FromException(ex, "execution")] }; }
     }
     public ValueTask DisposeAsync() => ownsWorkspace ? workspace.DisposeAsync() : ValueTask.CompletedTask;
 }

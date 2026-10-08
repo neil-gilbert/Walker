@@ -99,7 +99,8 @@ public sealed class RobustnessTests
         if (editedAfterCrash)
         {
             File.WriteAllText(path, "// user edit\n");
-            await Assert.ThrowsAsync<InvalidOperationException>(() => MutationJournal.RecoverAsync(workspace.Root, default));
+            var error = await Assert.ThrowsAsync<VerificationException>(() => MutationJournal.RecoverAsync(workspace.Root, default));
+            Assert.Equal("restore_conflict", error.Diagnostic.Code);
             Assert.Equal("// user edit\n", File.ReadAllText(path));
             File.Delete(MutationJournal.PathFor(workspace.Root));
             return;

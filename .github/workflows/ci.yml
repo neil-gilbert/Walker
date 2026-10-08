@@ -32,7 +32,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests
       - run: dotnet pack src/Walker.Cli -c Release --no-build -o artifacts/package
       - run: python3 scripts/check_packed_tool.py --package artifacts/package/Walker.Cli.0.1.0.nupkg --compiled-tests
-      - run: python3 scripts/check_packed_tool.py --package artifacts/package/Walker.Cli.0.1.0.nupkg --target-sdk 8.0.100 --target-framework net8.0
+      - run: python3 scripts/check_packed_tool.py --package artifacts/package/Walker.Cli.0.1.0.nupkg --target-sdk 8.0.100 --target-framework net8.0 --isolate --focused-rerun --agent-workflows
       - uses: actions/upload-artifact@v4
         if: always()
         with:

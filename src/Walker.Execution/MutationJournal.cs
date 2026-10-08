@@ -29,13 +29,15 @@ public static class MutationJournal
         Entry? entry;
         try { entry = JsonSerializer.Deserialize<Entry>(await File.ReadAllTextAsync(journal, cancellationToken)); }
         catch (JsonException) { entry = null; }
-        if (entry == null) throw new InvalidOperationException("Unreadable Walker restore journal; inspect and delete it: " + journal);
-        var original = Convert.FromBase64String(entry.Original);
-        if (!File.Exists(entry.Path)) throw new InvalidOperationException($"An interrupted Walker run mutated {entry.Path}, which no longer exists. Inspect it, then delete {journal}.");
+        if (entry == null) throw new VerificationException("restore_conflict", "recovery", "Unreadable Walker restore journal; inspect and delete it: " + journal);
+        byte[] original;
+        try { original = Convert.FromBase64String(entry.Original); }
+        catch (FormatException ex) { throw new VerificationException("restore_conflict", "recovery", "Unreadable Walker restore journal: " + journal, ex); }
+        if (!File.Exists(entry.Path)) throw new VerificationException("restore_conflict", "recovery", $"An interrupted Walker run mutated {entry.Path}, which no longer exists. Inspect it, then delete {journal}.");
         var current = await File.ReadAllBytesAsync(entry.Path, cancellationToken);
         if (current.AsSpan().SequenceEqual(original)) { File.Delete(journal); return null; }
         if (Hash(current) != entry.MutatedHash)
-            throw new InvalidOperationException($"An interrupted Walker run left {entry.Path} mutated, and it has changed since. Inspect it, then delete {journal}.");
+            throw new VerificationException("restore_conflict", "recovery", $"An interrupted Walker run left {entry.Path} mutated, and it has changed since. Inspect it, then delete {journal}.");
         await File.WriteAllBytesAsync(entry.Path, original, CancellationToken.None);
         File.Delete(journal);
         return $"Restored {entry.Path} after an interrupted Walker run.";

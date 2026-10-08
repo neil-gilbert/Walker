@@ -8,6 +8,21 @@ public static class TextReportWriter
     public static void Write(VerificationResult result, TextWriter writer, bool verbose = false)
     {
         writer.WriteLine("WALKER");
+        if (result.Challenges is { } challenges)
+            foreach (var challenge in challenges) writer.WriteLine($"Challenge: {challenge.Concern}\nExpected behaviour (caller supplied): {challenge.ExpectedBehaviour}");
+        if (result.TestImprovement is { } improvement)
+            writer.WriteLine($"Test improvement: {improvement.Status}; {improvement.VerifiedMutantIds.Count} original survivors caught by confirmed test failures.\nContract (caller supplied): {improvement.Contract}\nProposed tests were evaluated in isolation; review the patch before applying it.");
+        if (result.Investigation is { } investigation)
+            foreach (var gap in investigation.Gaps) writer.WriteLine($"Investigate {gap.File} / {gap.Member}: {gap.InvestigationHint} ({string.Join(", ", gap.MutantIds)})");
+        if (result.Selection.Kind == "explicit")
+            writer.WriteLine($"Focused verification: only requested mutant IDs ({string.Join(", ", result.Selection.RequestedIds)}); other discovered mutants remain unverified.");
+        if (result.Isolation is { } isolation)
+        {
+            writer.WriteLine($"Isolated snapshot: {isolation.SnapshotFingerprint ?? "not captured"}; worktree {isolation.CleanupState}");
+            writer.WriteLine($"Report: {isolation.ReportPath}");
+            if (isolation.CleanupState == "retained") writer.WriteLine($"Retained worktree: {isolation.WorktreePath}");
+            foreach (var file in isolation.UntrackedProductionFiles) writer.WriteLine($"Untracked production source: {file} (copied for build; no mutation evidence)");
+        }
         foreach (var file in result.Files.Where(f => f.MutantsDiscovered == 0))
             writer.WriteLine($"No mutation candidates: {file.File} ({file.ChangedLines} changed lines; no mutation evidence for this file)");
         writer.WriteLine($"Horde: {result.MutantsDiscovered} mutation candidates");

@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 namespace Walker.Core;
-public enum MutationOperator { ConditionalBoundary, Equality, NullHandling, BooleanLogic, ReturnValue, Arithmetic }
+public enum MutationOperator { ConditionalBoundary, Equality, NullHandling, BooleanLogic, ReturnValue, Arithmetic, CustomFault }
 // Hung: tests exceeded the per-mutant hang limit derived from the baseline; the change was detected.
 public enum MutationOutcome { Killed, Survived, CompileError, TestError, TimedOut, Skipped, Hung }
 public enum SurvivorClassification { Survived, IgnoredEquivalent, Accepted }
@@ -14,9 +14,21 @@ public record Mutant(string Id, string File, int Line, string Member, MutationOp
 }
 public record MutationResult(Mutant Mutant, MutationOutcome Outcome, long DurationMs = 0,
     long BuildMs = 0, long TestMs = 0, string? Detail = null, SurvivorClassification? Classification = null, IReadOnlyList<string>? FailingTests = null,
-    bool? KillConfirmed = null, long ConfirmationMs = 0);
+    bool? KillConfirmed = null, long ConfirmationMs = 0)
+{
+    public IReadOnlyList<VerificationDiagnostic> Diagnostics { get; init; } = [];
+}
 public record VerificationRequest(string Root, string Base, string Project, IReadOnlyList<string> Tests,
-    int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null, string? Filter = null, bool ConfirmKills = false, int Workers = 1);
+    int MaxMutants = 20, int TimeoutSeconds = 60, IReadOnlyList<string>? Exclude = null, string? Filter = null, bool ConfirmKills = false, int Workers = 1)
+{
+    public IReadOnlyList<string>? MutantIds { get; init; }
+    public DateTimeOffset? DeadlineUtc { get; init; }
+}
+public record MutationSelection(string Kind, IReadOnlyList<string> RequestedIds);
+public record VerificationScope(string Project, IReadOnlyList<string> Tests, string? Filter, int MaxMutants, int TimeoutSeconds);
+public record IsolationSummary(string RunId, string SourceRoot, string? SourceHead, string? ResolvedBase, string? MergeBase,
+    string? SnapshotFingerprint, VerificationScope Scope, long SetupMs, string ArtifactDirectory,
+    string ReportPath, string LogPath, string WorktreePath, string CleanupState, IReadOnlyList<string> UntrackedProductionFiles);
 public record TestSelection(IReadOnlyList<string> Projects, string? Filter = null);
 public record VerificationContext(VerificationRequest Request, ITestSelector TestSelector);
 public record DiscoveryResult(IReadOnlyList<Mutant> Mutants, long ParsingMs, long DiscoveryMs, int UnresolvedArithmetic = 0, int UnresolvedBoolean = 0);
@@ -26,8 +38,14 @@ public record PreparationSummary(long DurationMs, int Supported, int Fallback, s
 public record VerificationResult(string Status, string Base, int ChangedFiles, int MutantsDiscovered,
     int MutantsSelected, IReadOnlyList<MutationResult> Results, long DurationMs, PhaseTimings Timings, string? Error = null, int UnresolvedArithmetic = 0, string? TestFilter = null, int UnresolvedBoolean = 0)
 {
+    public IReadOnlyList<VerificationDiagnostic> Diagnostics { get; init; } = [];
     public IReadOnlyList<FileVerificationSummary> Files { get; init; } = [];
+    public MutationSelection Selection { get; init; } = new("bounded", []);
+    public IsolationSummary? Isolation { get; init; }
     public bool ConfirmKills { get; init; }
+    public InvestigationPacket? Investigation { get; init; }
+    public IReadOnlyList<FaultChallenge>? Challenges { get; init; }
+    public TestImprovementEvidence? TestImprovement { get; init; }
     public PreparationSummary? Preparation { get; init; }
     public int WorkersRequested { get; init; } = 1;
     public int WorkersUsed { get; init; } = 1;

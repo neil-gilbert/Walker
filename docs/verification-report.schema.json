@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Walker verification report, schema version 1",
+  "type": "object",
+  "required": ["schemaVersion", "status", "base", "changedFiles", "mutantsDiscovered", "mutantsSelected", "mutantsExecuted", "results", "durationMs", "timings", "exitCode", "guidance"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["passed", "failed", "error", "incomplete"] },
+    "base": { "type": "string" },
+    "changedFiles": { "$ref": "#/$defs/count" },
+    "mutantsDiscovered": { "$ref": "#/$defs/count" },
+    "mutantsSelected": { "$ref": "#/$defs/count" },
+    "mutantsExecuted": { "$ref": "#/$defs/count" },
+    "killed": { "$ref": "#/$defs/count" },
+    "survived": { "$ref": "#/$defs/count" },
+    "hung": { "$ref": "#/$defs/count" },
+    "compileErrors": { "$ref": "#/$defs/count" },
+    "testErrors": { "$ref": "#/$defs/count" },
+    "timedOut": { "$ref": "#/$defs/count" },
+    "skipped": { "$ref": "#/$defs/count" },
+    "unresolvedArithmetic": { "$ref": "#/$defs/count" },
+    "unresolvedBoolean": { "$ref": "#/$defs/count" },
+    "durationMs": { "$ref": "#/$defs/count" },
+    "error": { "type": ["string", "null"] },
+    "testFilter": { "type": ["string", "null"] },
+    "guidance": { "type": "string" },
+    "exitCode": { "enum": [0, 1, 2, 3] },
+    "confirmKills": { "type": "boolean" },
+    "investigation": {
+      "type": ["object", "null"], "required": ["gaps", "guidance"],
+      "properties": {
+        "guidance": { "type": "string" },
+        "gaps": { "type": "array", "items": {
+          "type": "object", "required": ["file", "member", "operator", "mutantIds", "investigationHint"],
+          "properties": {
+            "file": { "type": "string" }, "member": { "type": "string" }, "operator": { "type": "string" },
+            "mutantIds": { "type": "array", "items": { "type": "string" } }, "investigationHint": { "type": "string" }
+          }
+        } }
+      }
+    },
+    "challenges": { "type": ["array", "null"], "items": { "$ref": "#/$defs/challenge" } },
+    "testImprovement": {
+      "type": ["object", "null"], "required": ["contract", "status", "before", "files", "verifiedMutantIds", "guidance"],
+      "properties": {
+        "contract": { "type": "string" }, "status": { "enum": ["verified", "not_verified"] },
+        "before": { "$ref": "#" }, "files": { "type": "array", "items": { "$ref": "#/$defs/testFilePatch" } },
+        "verifiedMutantIds": { "type": "array", "items": { "type": "string" } }, "guidance": { "type": "string" }
+      }
+    },
+    "workersRequested": { "type": "integer", "minimum": 1 },
+    "workersUsed": { "type": "integer", "minimum": 1 },
+    "timings": {
+      "type": "object", "required": ["gitMs", "parsingMs", "discoveryMs", "baselineMs"],
+      "properties": {
+        "gitMs": { "$ref": "#/$defs/count" }, "parsingMs": { "$ref": "#/$defs/count" },
+        "discoveryMs": { "$ref": "#/$defs/count" }, "baselineMs": { "$ref": "#/$defs/count" }
+      }
+    },
+    "diagnostics": { "$ref": "#/$defs/diagnostics" },
+    "results": { "type": "array", "items": { "$ref": "#/$defs/result" } },
+    "survivors": { "type": "array", "items": { "$ref": "#/$defs/mutant" } },
+    "files": {
+      "type": "array", "items": {
+        "type": "object", "required": ["file", "changedLines", "mutantsDiscovered", "mutantsSelected"],
+        "properties": {
+          "file": { "type": "string" }, "changedLines": { "$ref": "#/$defs/count" },
+          "mutantsDiscovered": { "$ref": "#/$defs/count" }, "mutantsSelected": { "$ref": "#/$defs/count" }
+        }
+      }
+    },
+    "preparation": {
+      "type": ["object", "null"], "required": ["durationMs", "supported", "fallback"],
+      "properties": {
+        "durationMs": { "$ref": "#/$defs/count" }, "supported": { "$ref": "#/$defs/count" },
+        "fallback": { "$ref": "#/$defs/count" }, "detail": { "type": ["string", "null"] }
+      }
+    },
+    "selection": {
+      "type": "object", "required": ["kind", "requestedIds"],
+      "properties": {
+        "kind": { "enum": ["bounded", "explicit"] },
+        "requestedIds": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "isolation": {
+      "type": ["object", "null"],
+      "required": ["runId", "sourceRoot", "sourceHead", "resolvedBase", "mergeBase", "snapshotFingerprint", "scope", "setupMs", "artifactDirectory", "reportPath", "logPath", "worktreePath", "cleanupState", "untrackedProductionFiles"],
+      "properties": {
+        "runId": { "type": "string" }, "sourceRoot": { "type": "string" },
+        "sourceHead": { "type": ["string", "null"] }, "resolvedBase": { "type": ["string", "null"] },
+        "mergeBase": { "type": ["string", "null"] }, "snapshotFingerprint": { "type": ["string", "null"] },
+        "setupMs": { "$ref": "#/$defs/count" }, "artifactDirectory": { "type": "string" },
+        "reportPath": { "type": "string" }, "logPath": { "type": "string" }, "worktreePath": { "type": "string" },
+        "cleanupState": { "enum": ["not_created", "pending", "removed", "retained"] },
+        "untrackedProductionFiles": { "type": "array", "items": { "type": "string" } },
+        "scope": {
+          "type": "object", "required": ["project", "tests", "filter", "maxMutants", "timeoutSeconds"],
+          "properties": {
+            "project": { "type": "string" }, "tests": { "type": "array", "items": { "type": "string" } },
+            "filter": { "type": ["string", "null"] }, "maxMutants": { "type": "integer", "minimum": 1 },
+            "timeoutSeconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "const": "passed" } } }, "then": { "properties": { "exitCode": { "const": 0 } } } },
+    { "if": { "properties": { "status": { "const": "failed" } } }, "then": { "properties": { "exitCode": { "const": 1 } } } },
+    { "if": { "properties": { "status": { "const": "error" } } }, "then": { "properties": { "exitCode": { "const": 2 } } } },
+    { "if": { "properties": { "status": { "const": "incomplete" } } }, "then": { "properties": { "exitCode": { "const": 3 } } } }
+  ],
+  "$defs": {
+    "challenge": {
+      "type": "object", "required": ["file", "sourceHash", "spanStart", "original", "replacement", "concern", "expectedBehaviour"],
+      "properties": {
+        "file": { "type": "string" }, "sourceHash": { "type": "string" }, "spanStart": { "$ref": "#/$defs/count" },
+        "original": { "type": "string" }, "replacement": { "type": "string" }, "concern": { "type": "string" },
+        "expectedBehaviour": { "type": "string" }
+      }
+    },
+    "testFilePatch": {
+      "type": "object", "required": ["file", "originalHash", "content"],
+      "properties": {
+        "file": { "type": "string" }, "originalHash": { "type": ["string", "null"] }, "content": { "type": "string" }
+      }
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "diagnostics": {
+      "type": "array", "items": {
+        "type": "object", "required": ["code", "phase", "message", "actions"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 }, "phase": { "type": "string", "minLength": 1 },
+          "message": { "type": "string" }, "actions": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "mutant": {
+      "type": "object", "required": ["id", "file", "line", "member", "operator", "original", "replacement", "spanStart", "spanLength", "sourceHash"],
+      "properties": {
+        "id": { "type": "string" }, "file": { "type": "string" }, "line": { "type": "integer", "minimum": 1 },
+        "member": { "type": "string" }, "operator": { "enum": ["ConditionalBoundary", "Equality", "NullHandling", "BooleanLogic", "ReturnValue", "Arithmetic", "CustomFault"] },
+        "original": { "type": "string" }, "replacement": { "type": "string" },
+        "spanStart": { "$ref": "#/$defs/count" }, "spanLength": { "$ref": "#/$defs/count" }, "sourceHash": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "object", "required": ["mutant", "outcome", "durationMs", "buildMs", "testMs"],
+      "properties": {
+        "mutant": { "$ref": "#/$defs/mutant" }, "outcome": { "enum": ["Killed", "Survived", "CompileError", "TestError", "TimedOut", "Skipped", "Hung"] },
+        "durationMs": { "$ref": "#/$defs/count" }, "buildMs": { "$ref": "#/$defs/count" }, "testMs": { "$ref": "#/$defs/count" },
+        "confirmationMs": { "$ref": "#/$defs/count" }, "detail": { "type": ["string", "null"] },
+        "classification": { "enum": [null, "Survived", "IgnoredEquivalent", "Accepted"] },
+        "failingTests": { "type": ["array", "null"], "items": { "type": "string" } },
+        "killConfirmed": { "type": ["boolean", "null"] }, "diagnostics": { "$ref": "#/$defs/diagnostics" }
+      }
+    }
+  }
+}

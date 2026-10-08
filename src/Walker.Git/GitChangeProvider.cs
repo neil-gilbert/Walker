@@ -11,8 +11,8 @@ public sealed partial class GitChangeProvider(IProcessRunner runner, IProduction
         {
             // Unescaped UTF-8 paths keep diff headers parseable regardless of user configuration.
             var result = await runner.RunAsync(new("git", ["-c", "core.quotePath=false", .. args], request.Root, OutputLimit: 16 * 1024 * 1024), cancellationToken);
-            if (result.OutputTruncated) throw new InvalidOperationException("Git output exceeds the safety limit; narrow the change.");
-            if (result.ExitCode != 0) throw new InvalidOperationException("Git discovery failed: " + result.StandardError.Trim());
+            if (result.OutputTruncated) throw new VerificationException("git_discovery_failed", "discovery", "Git output exceeds the safety limit; narrow the change.");
+            if (result.ExitCode != 0) throw new VerificationException("git_discovery_failed", "discovery", "Git discovery failed: " + result.StandardError.Trim());
             return result.StandardOutput;
         }
         // Three-dot semantics use the merge base; compare that commit to the actual working copy.

@@ -54,7 +54,7 @@ public sealed class BuildReuseTests
     {
         using var fixture = new Fixture("standard");
         fixture.TestsFail = true;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Executor.VerifyAsync(fixture.Request, default));
+        await Assert.ThrowsAsync<VerificationException>(() => fixture.Executor.VerifyAsync(fixture.Request, default));
         fixture.TestsFail = false;
         fixture.Baseline = false;
         fixture.Calls.Clear();
