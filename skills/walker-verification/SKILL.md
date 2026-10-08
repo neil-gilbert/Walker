@@ -75,6 +75,8 @@ dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify \
 
 Run verification from inside the **isolated target worktree**. CLI project and test paths are relative to the current directory; configured exclude globs match repository-relative paths. Do not assume a package named `Walker.Cli` on a public feed is this implementation. Use the supplied source or a trusted installed tool.
 
+**Check the tool's capabilities before relying on this skill's options.** An installed global tool can be older than this skill: for example, `walker.cli` 0.1.0 installed with `dotnet tool install -g` lives in `~/.dotnet/tools/walker` (often not on `PATH`) and has no `--filter`, `--confirm-kills`, `--mutant-mode` or `--workers`. Run `verify --help` and compare. If an option you need is missing and trusted source is available, build the source CLI and use its apphost instead. Without `--filter`, every mutant runs the whole test project, which is usually not viable for integration suites.
+
 If .NET, Git, package restore, or the verifier is unavailable, report the blocker. Do not claim mutation verification passed.
 
 The current Walker CLI requires the .NET 10 runtime; building its source requires the repository's .NET 10 SDK. Target projects retain their own SDK/framework policy, including SDK 8 or 9. When using separate installations, run the CLI apphost (`Walker.Cli`, or `Walker.Cli.exe` on Windows) with `DOTNET_ROOT` pointing to the .NET 10 installation and put the target SDK on `PATH`. On macOS, hosting the DLL through a separate `dotnet` executable can cause child commands to resolve from that executable's directory and miss the target SDK. Treat SDK-resolution failure as infrastructure failure; preserve the target's `global.json`.
@@ -112,6 +114,12 @@ cat "$report_path"
 Substitute the compiled CLI or local-tool invocation when necessary. Preserve the exit code from the verifier itself; do not pipe it through a command that hides that code. Read the JSON only after the process exits and source restoration finishes. Preserve the JSON, stderr log, and exit code outside the disposable worktree, including on failure. A missing or invalid JSON report is an execution failure; return the exit code and logs rather than inferring success.
 
 For slow test projects, choose a relevant subset with `--filter "FullyQualifiedName~EpsDebitTests"` (or `"filter"` in `walker.json`; CLI overrides config). Both baseline and mutants use exactly that filter. Inspect `testFilter` in JSON and report the limited test scope. A filter matching no executed tests is `TestError`, never success.
+
+**Default filter: the test classes changed in the diff.** Unless the user asks for a wider scope, derive the filter from `git diff --name-only <base> -- <test dirs>` and join the changed classes with `|` (for example `FullyQualifiedName~IdealWeroBankPreselectTests`). Users expect a run of a few minutes. A broad filter such as `FullyQualifiedName~Ideal` can match 100+ integration tests, and each mutant rebuilds and runs all of them.
+
+**Size the budget from a measured baseline.** The 60-second default is for unit tests. For integration tests, time the filtered baseline (`dotnet test --filter ...`) in the isolated worktree first, then set `--timeout` to about `baseline × (expected mutants + 1) × 1.5`. Example: a 16-test class took ~25 s per mutant, and 7–9 mutants finished in ~4 minutes; a 124-test filter took ~90 s per mutant (~30 minutes in total). Tell the user the expected duration before a long run.
+
+On macOS, wrap long runs in `caffeinate -dimu` so that sleep does not corrupt Testcontainers runs into bogus failures.
 
 Check `schemaVersion` before relying on fields; this implementation uses version 1. Version 1 also contains the additive `hung` count, `Hung` outcome and `unresolvedArithmetic` count (arithmetic candidates whose operand types could not be resolved and were not mutated). Inspect `files` for changed production files with zero `mutantsDiscovered` or zero `mutantsSelected`. Explicitly report these gaps even when the run passes; use normal focused tests/review to investigate them. Text output names files with no candidates. Inspect `status`, `error`, `mutantsDiscovered`, `mutantsSelected`, `mutantsExecuted`, outcome counts, `survivors`, and `results`. Timings show discovery, baseline, build, test, and per-mutant cost. Selection is deterministic and bounded; candidates outside `--max-mutants` are not executed and are not counted as budget-skipped selected mutants.
 
@@ -153,6 +161,8 @@ For each survivor:
 3. Determine the intended behaviour from the user request, requirements, existing contract, and domain rules. Do not invent a rule just because it would kill the mutant.
 4. Decide whether the cause is missing test coverage, a weak assertion, an untested boundary condition, an equivalent mutation, intentionally unspecified behaviour, or incorrect production behaviour.
 5. Add a focused test with a meaningful assertion when the contract specifies a missing behaviour. Correct production code only when evidence establishes that it violates that contract.
+   - **Log-only survivors:** a mutant that changes only *whether or what* is logged (for example the condition around a warning, or a value placed in a log field) cannot be killed by tests that assert only HTTP responses and PSP payloads. Classify it as log-only. Do not add test-only production hooks. Offer a test-side log-capture helper (for example an `ILoggerProvider` registered in the test host) as a separate decision for the user.
+   - **Compare scopes to classify survivors:** if a wider filter run (or an earlier, cancelled run) killed a mutant that survives the changed-class filter, the gap is in the changed tests, and other suites already constrain the behaviour. Usually the fix is a focused test in the changed class for that contract (for example, the toggle-off path).
 6. If equivalent or intentionally accepted, record the reason and discriminating-input analysis. The CLI has no built-in acceptance flag; classifications live outside execution and do not turn exit 1 into exit 0.
 7. Run normal build/tests again, then repeat verification with the same base and comparable bounds.
 
@@ -161,6 +171,8 @@ Example: if equality is explicitly permitted, add a test asserting `CanPurchase(
 ## Source safety and operating limits
 
 Source-mode execution modifies one worktree source file at a time, then restores its exact original bytes in cleanup. Supported switch mutants execute from prepared scratch outputs; unsupported mutants use the source path. Switch mode checks input hashes and refuses stale prepared execution if build inputs change. The CLI handles Ctrl+C with cancellation; wait for it and its child build/test processes to exit before inspecting source or removing the worktree. Keep the snapshot fixed while verification runs; make intentional fixes in the source checkout between runs. Give concurrent invocations separate worktrees and output paths.
+
+To stop a run early (for example, to narrow the filter), send SIGINT to the Walker CLI process itself, not to a wrapper such as `caffeinate` or the shell: `kill -INT <walker-pid>`. Wait for the process to exit; it restores source and writes a JSON report with exit code 3 (incomplete). Keep that report: its completed results are still useful evidence for classifying survivors. Then confirm the worktree matches the snapshot before you start again.
 
 Normal process errors, test failures, cancellation, and budget expiry should restore source. Forced process termination or host failure can leave mutations behind in the disposable worktree. Compare it against the captured snapshot after execution and report restoration failures; never use its residual diff as a proposed fix. Keep an abnormal run's worktree and artifacts for investigation. Recovery must not discard or restore files in the agent's source checkout.
 
@@ -178,4 +190,14 @@ Use wording such as:
 
 For incomplete verification, say so explicitly and identify what remains unverified. Never call a survivor a production bug without investigating its contract.
 
-After the calling agent has consumed the result, retain the report and logs at the returned artifact paths and remove only the disposable worktree created for this run with `git worktree remove <worktree-path>`. Check its diff against the snapshot first. If removal refuses because it is dirty, retain it and report the path; do not force cleanup or discard changes. Never remove a pre-existing or unrelated worktree.
+After the calling agent has consumed the result, retain the report and logs at the returned artifact paths and remove only the disposable worktree created for this run. Never remove a pre-existing or unrelated worktree.
+
+**The disposable worktree is always "dirty" by design.** `git apply --index` stages the snapshot, so plain `git worktree remove <path>` always refuses. Do not treat this refusal as a sign of residual mutations. Instead:
+
+1. Compare the worktree's tracked diff with the captured snapshot: `git -C <worktree> diff --binary --no-ext-diff --no-textconv HEAD -- | cmp - <snapshot.patch>`.
+2. If they are identical, forced removal discards nothing except the snapshot copy. Ask the user once for approval, then run `git worktree remove --force <worktree-path>` and `git worktree prune`.
+3. If they differ, keep the worktree and report the path: it can contain a mutation that was not restored.
+
+**Use a new worktree path for each run** (for example `<artifact_dir>/run<N>/worktree`), and keep each run's snapshot, report, log and exit code in its own `run<N>` directory. Then a retry never collides with a worktree that you have not removed yet.
+
+**Check each setup step explicitly.** `set -e` does not stop at a failing command inside an `&&` chain, and `worktree add` into an existing path fails. If you hide its output, the next `git apply` can then run against the old worktree. Test the exit status of `worktree add`, `apply` and the snapshot `cmp` before you build or run Walker.
