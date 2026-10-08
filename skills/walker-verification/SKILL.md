@@ -75,7 +75,18 @@ dotnet <verifier-repo>/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli.dll verify \
 
 Run verification from inside the **isolated target worktree**. CLI project and test paths are relative to the current directory; configured exclude globs match repository-relative paths. Do not assume a package named `Walker.Cli` on a public feed is this implementation. Use the supplied source or a trusted installed tool.
 
-**Check the tool's capabilities before relying on this skill's options.** An installed global tool can be older than this skill: for example, `walker.cli` 0.1.0 installed with `dotnet tool install -g` lives in `~/.dotnet/tools/walker` (often not on `PATH`) and has no `--filter`, `--confirm-kills`, `--mutant-mode` or `--workers`. Run `verify --help` and compare. If an option you need is missing and trusted source is available, build the source CLI and use its apphost instead. Without `--filter`, every mutant runs the whole test project, which is usually not viable for integration suites.
+**Check the tool's capabilities before relying on this skill's options.** Run `verify --help` and compare it with the options in this skill. Without `--filter`, every mutant runs the whole test project, which is usually not viable for integration suites.
+
+Look for every install, not only the first one you find:
+
+- **Global tool:** `dotnet tool list -g`, binary in `~/.dotnet/tools/walker` (often not on `PATH`). It can be older than this skill. For example, `walker.cli` 0.1.0 has no `--filter`, `--confirm-kills`, `--mutant-mode` or `--workers`.
+- **Local tool manifests:** a newer version can be pinned in another repository's `dotnet-tools.json` (for example the Walker source repository). .NET resolves local tools from the current directory. Walker must run from inside the target worktree, so `dotnet tool run walker` cannot find a tool that is pinned in another repository.
+- **Source:** the Walker repository's `src/Walker.Cli` and its packed `artifacts/Walker.Cli.<version>.nupkg`.
+
+If the global tool is older than a local or packed version, tell the user. Do not call the tool "outdated" without naming which install you checked. To use the newer version from the target worktree, either:
+
+- run the apphost built from the same trusted source (`<walker-repo>/src/Walker.Cli/bin/Debug/net10.0/Walker.Cli`), or
+- with the user's approval, update the global tool from the packed artifact: `dotnet tool update -g walker.cli --add-source <walker-repo>/artifacts --version <version>`.
 
 If .NET, Git, package restore, or the verifier is unavailable, report the blocker. Do not claim mutation verification passed.
 
