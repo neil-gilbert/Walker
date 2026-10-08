@@ -23,4 +23,16 @@
 Run builds, tests, tool restoration, and Walker from `worktree_path`, using project paths and configuration from that snapshot. Use an absolute path for a compiled verifier located elsewhere. After intentional test or production fixes in the agent's source checkout, prepare a fresh snapshot and worktree for the next run with the same base. Never copy mutation-run source changes back into the agent's checkout.
 
 
-After consuming the report, compare this owned worktree against the captured snapshot and remove it with `git worktree remove <path>`. If removal refuses, retain it and report the path. Never remove unrelated worktrees.
+After the calling agent has consumed the result, retain the report and logs at the returned artifact paths and remove only the disposable worktree created for this run. Never remove a pre-existing or unrelated worktree.
+
+**The disposable worktree is always "dirty" by design.** `git apply --index` stages the snapshot, so plain `git worktree remove <path>` always refuses. Do not treat this refusal as a sign of residual mutations. Instead:
+
+1. Compare the worktree's tracked diff with the captured snapshot: `git -C <worktree> diff --binary --no-ext-diff --no-textconv HEAD -- | cmp - <snapshot.patch>`.
+2. If they are identical, forced removal discards nothing except the snapshot copy. Ask the user once for approval, then run `git worktree remove --force <worktree-path>`.
+3. If they differ, keep the worktree and report the path: it can contain a mutation that was not restored.
+
+**Use a new worktree path for each run** (for example `<artifact_dir>/run<N>/worktree`), and keep each run's snapshot, report, log and exit code in its own `run<N>` directory. Then a retry never collides with a worktree that you have not removed yet.
+
+**Check each setup step explicitly.** `set -e` does not stop at a failing command inside an `&&` chain, and `worktree add` into an existing path fails. If you hide its output, the next `git apply` can then run against the old worktree. Test the exit status of `worktree add`, `apply` and the snapshot `cmp` before you build or run Walker.
+
+Tracked-patch equality alone is insufficient: also verify copied untracked inputs match the snapshot and inspect unexpected files before removal. Native isolation already checks ownership and captured inputs; these manual cleanup steps apply only to this reference workflow.
