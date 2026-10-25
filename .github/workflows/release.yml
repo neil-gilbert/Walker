@@ -52,17 +52,10 @@ jobs:
     environment: nuget
     permissions:
       contents: write
+      id-token: write
     env:
       RELEASE_VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - name: Check publishing credentials
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          if [[ -z "$NUGET_API_KEY" ]]; then
-            echo '::error::Add NUGET_API_KEY to Walker Actions secrets using the neil-gilbert NuGet account, with create/update access to Walker.Cli.'
-            exit 1
-          fi
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
@@ -70,9 +63,14 @@ jobs:
         with:
           name: walker-package
           path: artifacts/package
+      - name: Sign in to NuGet using trusted publishing
+        uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: neil-gilbert
       - name: Publish tested package to NuGet.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
         run: dotnet nuget push "artifacts/package/Walker.Cli.$RELEASE_VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
       - name: Create GitHub release
         env:
