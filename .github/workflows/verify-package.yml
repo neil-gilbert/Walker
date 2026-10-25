@@ -26,9 +26,6 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Build and pack
         shell: bash
         run: |
@@ -36,17 +33,46 @@ jobs:
           if [[ -n "$RELEASE_VERSION" ]]; then
             version_args=("-p:Version=$RELEASE_VERSION")
           fi
-          dotnet restore Walker.sln
-          dotnet build Walker.sln -c Release --no-restore -p:ContinuousIntegrationBuild=true "${version_args[@]}"
-          dotnet test Walker.sln -c Release --no-build --logger trx --results-directory artifacts/tests
-          python scripts/check_release.py --self-test
-          python -m unittest discover -s scripts/tests
+          dotnet restore src/Walker.Cli
+          dotnet build src/Walker.Cli -c Release --no-restore -p:ContinuousIntegrationBuild=true "${version_args[@]}"
           dotnet pack src/Walker.Cli -c Release --no-build -p:ContinuousIntegrationBuild=true "${version_args[@]}" -o artifacts/package
       - uses: actions/upload-artifact@v4
         with:
           name: walker-package
           path: artifacts/package/*.nupkg
           if-no-files-found: error
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build solution
+        shell: bash
+        run: |
+          version_args=()
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            version_args=("-p:Version=$RELEASE_VERSION")
+          fi
+          dotnet build Walker.sln -c Release -p:ContinuousIntegrationBuild=true "${version_args[@]}"
+      - name: Test solution
+        run: dotnet test Walker.sln -c Release --no-build --logger trx --results-directory artifacts/tests
+      - name: Test release scripts
+        run: |
+          python scripts/check_release.py --self-test
+          python -m unittest discover -s scripts/tests
       - uses: actions/upload-artifact@v4
         if: always()
         with:

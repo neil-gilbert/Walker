@@ -116,10 +116,23 @@ public sealed class IsolatedVerificationSession(IProcessRunner runner, Action<st
             {
                 if (!durable || snapshot == null || ownership == null || worktreeIndex == null)
                     throw new IOException("Worktree ownership or complete setup metadata could not be verified; retaining it.");
-                await CheckOwnedSnapshot(process, worktree, snapshot.Head, ownership, worktreeIndex, copied, CancellationToken.None);
-                if (File.Exists(MutationJournal.PathFor(worktree))) throw new IOException("Isolated source still has a pending restore journal.");
-                // Only the private worktree with matching captured inputs may be force-removed.
-                await Git(process, sourceRoot, CancellationToken.None, "worktree", "remove", "--force", worktree);
+                for (var attempt = 0; ; attempt++)
+                {
+                    // Recheck ownership and inputs before every removal attempt.
+                    await CheckOwnedSnapshot(process, worktree, snapshot.Head, ownership, worktreeIndex, copied, CancellationToken.None);
+                    if (File.Exists(MutationJournal.PathFor(worktree))) throw new IOException("Isolated source still has a pending restore journal.");
+                    try
+                    {
+                        await Git(process, sourceRoot, CancellationToken.None, "worktree", "remove", "--force", worktree);
+                        break;
+                    }
+                    catch (VerificationException ex) when (attempt < 2 && DisappearingSibling(ex, ownership, worktree))
+                    {
+                        // Git enumerates sibling ref stores during removal. Another session
+                        // can delete one after enumeration; retry only that missing sibling.
+                        await Task.Delay(25 * (attempt + 1), CancellationToken.None);
+                    }
+                }
                 summary = summary with { CleanupState = "removed" };
             }
             catch (Exception ex)
@@ -145,6 +158,19 @@ public sealed class IsolatedVerificationSession(IProcessRunner runner, Action<st
         Status = "error", Error = result.Error == null ? message : result.Error + "\n" + message,
         Diagnostics = [..result.Diagnostics, VerificationDiagnostic.Create(code, "isolation", message)]
     };
+
+    private static bool DisappearingSibling(VerificationException exception, string ownership, string worktree)
+    {
+        const string prefix = "Git isolation operation failed: fatal: Invalid path '";
+        const string suffix = "': No such file or directory";
+        if (!ownership.StartsWith("gitdir: ", StringComparison.Ordinal)
+            || !exception.Message.StartsWith(prefix, StringComparison.Ordinal)
+            || !exception.Message.EndsWith(suffix, StringComparison.Ordinal)) return false;
+        var missing = IsolationInputPolicy.Normalize(exception.Message[prefix.Length..^suffix.Length]);
+        var owned = IsolationInputPolicy.Normalize(Path.GetFullPath(ownership[8..].Trim(), worktree));
+        return !IsolationInputPolicy.PathComparer.Equals(missing, owned)
+            && IsolationInputPolicy.PathComparer.Equals(Path.GetDirectoryName(missing), Path.GetDirectoryName(owned));
+    }
 
     private static async Task<Snapshot> Capture(IProcessRunner process, VerificationRequest request, string inputsRoot, string artifacts, CancellationToken token)
     {

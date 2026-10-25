@@ -113,6 +113,71 @@ public sealed class IsolatedVerificationTests
         Assert.Equal(before, await fixture.SourceState());
     }
 
+    [Theory]
+    [InlineData(1, 0, 2, true)]
+    [InlineData(10, 2, 3, true)]
+    [InlineData(1, 2, 1, false)]
+    public async Task CleanupRetriesDisappearingSiblingMetadataWithABound(int failures, int exitCode, int expectedAttempts, bool sibling)
+    {
+        using var fixture = await Fixture.Create();
+        var before = await fixture.SourceState();
+        var attempts = 0;
+        var process = new ControlledRunner((request, token) =>
+        {
+            if (request.FileName == "git" && request.Arguments.Contains("remove") && ++attempts <= failures)
+            {
+                var missing = sibling ? $"{fixture.Root}/.git/worktrees/disappeared"
+                    : File.ReadAllText(Path.Combine(request.Arguments[^1], ".git"))[8..].Trim();
+                return Task.FromResult(new ProcessResult(128, "",
+                    $"fatal: Invalid path '{missing}': No such file or directory", 1));
+            }
+            return fixture.Runner.RunAsync(request, token);
+        });
+        var report = await new IsolatedVerificationSession(process).VerifyAsync(fixture.Request, fixture.Root,
+            (request, _, _) => Task.FromResult(Passed(request)));
+        try
+        {
+            Assert.Equal(exitCode, report.ExitCode);
+            Assert.Equal(expectedAttempts, attempts);
+            Assert.Equal(exitCode == 0 ? "removed" : "retained", report.Isolation!.CleanupState);
+            Assert.Equal(before, await fixture.SourceState());
+        }
+        finally
+        {
+            if (Directory.Exists(report.Isolation!.WorktreePath))
+                await fixture.Git("worktree", "remove", "--force", report.Isolation.WorktreePath);
+        }
+    }
+
+    [Fact]
+    public async Task CleanupRetryRechecksCapturedInputsBeforeRemoval()
+    {
+        using var fixture = await Fixture.Create();
+        var attempts = 0;
+        var process = new ControlledRunner((request, token) =>
+        {
+            if (request.FileName == "git" && request.Arguments.Contains("remove"))
+            {
+                attempts++;
+                File.AppendAllText(Path.Combine(request.Arguments[^1], "Code/Code.cs"), "// changed during cleanup");
+                return Task.FromResult(new ProcessResult(128, "",
+                    $"fatal: Invalid path '{fixture.Root}/.git/worktrees/disappeared': No such file or directory", 1));
+            }
+            return fixture.Runner.RunAsync(request, token);
+        });
+        var report = await new IsolatedVerificationSession(process).VerifyAsync(fixture.Request, fixture.Root,
+            (request, _, _) => Task.FromResult(Passed(request)));
+        try
+        {
+            Assert.Equal(2, report.ExitCode);
+            Assert.Equal(1, attempts);
+            Assert.Equal("retained", report.Isolation!.CleanupState);
+            Assert.Contains("Snapshot input changed", report.Error);
+            Assert.True(Directory.Exists(report.Isolation.WorktreePath));
+        }
+        finally { await fixture.Git("worktree", "remove", "--force", report.Isolation!.WorktreePath); }
+    }
+
     private static VerificationResult Passed(VerificationRequest request) => new("passed", request.Base, 1, 1, 1,
         [new(DiscoveryTests.Dummy("fixture"), MutationOutcome.Killed)], 1, new());
 
@@ -212,13 +277,13 @@ public sealed class IsolatedVerificationTests
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         async Task<VerificationResult> Verify(VerificationRequest request, IProcessRunner process, CancellationToken token)
         {
-            if (Interlocked.Increment(ref arrivals) == 2) ready.SetResult();
+            if (Interlocked.Increment(ref arrivals) == 8) ready.SetResult();
             await ready.Task.WaitAsync(token);
             return Passed(request);
         }
         try
         {
-            var reports = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => new IsolatedVerificationSession(fixture.Runner)
+            var reports = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => new IsolatedVerificationSession(fixture.Runner)
                 .VerifyAsync(fixture.Request, fixture.Root, Verify, cancellation.Token)));
             Assert.All(reports, report => Assert.True(report.ExitCode == 0, report.Error));
             Assert.NotEqual(reports[0].Isolation!.WorktreePath, reports[1].Isolation!.WorktreePath);
