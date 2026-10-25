@@ -14,28 +14,5 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
-      - run: dotnet restore Walker.sln
-      - run: dotnet build Walker.sln --configuration Release --no-restore
-      - run: dotnet test Walker.sln --configuration Release --no-build --logger trx --results-directory artifacts/tests
-      - run: python3 -m unittest discover -s scripts/tests
-      - run: dotnet pack src/Walker.Cli -c Release --no-build -o artifacts/package
-      - run: python3 scripts/check_packed_tool.py --package artifacts/package/Walker.Cli.0.1.0.nupkg --compiled-tests
-      - run: python3 scripts/check_packed_tool.py --package artifacts/package/Walker.Cli.0.1.0.nupkg --target-sdk 8.0.100 --target-framework net8.0 --isolate --focused-rerun --agent-workflows
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: artifacts/tests
-          if-no-files-found: ignore
+  verify:
+    uses: ./.github/workflows/verify-package.yml

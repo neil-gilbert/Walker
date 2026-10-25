@@ -16,7 +16,7 @@ from xml.sax.saxutils import escape
 def main():
     repo = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--package', type=Path, required=True)
+    parser.add_argument('--package', type=Path, required=True, help='Package file, or directory containing exactly one .nupkg')
     parser.add_argument('--dotnet', type=Path, default=Path(shutil.which('dotnet') or 'dotnet'))
     parser.add_argument('--target-dotnet', type=Path, help='Separate dotnet installation for target builds/tests')
     parser.add_argument('--target-sdk', default='10.0.100', help='Minimum target SDK; rolls forward within its major version')
@@ -29,6 +29,11 @@ def main():
     parser.add_argument('--agent-workflows', action='store_true', help='Exercise progress, investigation and paired explicit-fault/test-patch verification')
     parser.add_argument('--evidence-directory', type=Path, help='Retain reports and fixture source hashes')
     args = parser.parse_args()
+    if args.package.is_dir():
+        packages = list(args.package.glob('*.nupkg'))
+        if len(packages) != 1:
+            parser.error(f'Expected exactly one .nupkg in {args.package}, found {len(packages)}')
+        args.package = packages[0]
     if args.compiled_tests and args.mutant_mode == 'switch':
         parser.error('Switch mode includes DLL checks; omit --compiled-tests')
     if args.workers == 2 and args.mutant_mode != 'switch': parser.error('Two workers require switch mode')
@@ -44,6 +49,9 @@ def main():
         installed = root / 'installed'
         with zipfile.ZipFile(args.package) as package:
             assert 'tools/net10.0/any/Walker.BuildLogger.dll' in package.namelist(), 'Logger missing from tool package'
+            assert 'tools/net10.0/any/Walker.CoverageCollector.dll' in package.namelist(), 'Coverage collector missing from tool package'
+            assert 'README.md' in package.namelist(), 'Package README missing'
+            assert 'LICENSE' in package.namelist(), 'Package license missing'
             assert not any(name.endswith('/Microsoft.Build.Framework.dll') for name in package.namelist()), 'MSBuild must supply its own framework assembly'
             specification = ET.fromstring(package.read(next(name for name in package.namelist() if name.endswith('.nuspec'))))
             identity = next(e.text for e in specification.iter() if e.tag.split('}')[-1] == 'id')

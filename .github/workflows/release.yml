@@ -1,0 +1,91 @@
+name: Release to NuGet
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build and check (manual runs do not publish)
+        type: string
+        default: '0.1.0-preview.1'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate release version and source
+        id: version
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: python scripts/check_release.py
+
+  verify:
+    needs: version
+    uses: ./.github/workflows/verify-package.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: [version, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check publishing credentials
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [[ -z "$NUGET_API_KEY" ]]; then
+            echo '::error::Add NUGET_API_KEY to Walker Actions secrets using the neil-gilbert NuGet account, with create/update access to Walker.Cli.'
+            exit 1
+          fi
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: walker-package
+          path: artifacts/package
+      - name: Publish tested package to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "artifacts/package/Walker.Cli.$RELEASE_VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          if gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "GitHub release v$RELEASE_VERSION already exists."
+            exit 0
+          fi
+          release_args=()
+          if [[ "$PRERELEASE" == true ]]; then
+            release_args=(--prerelease)
+          fi
+          gh release create "v$RELEASE_VERSION" "artifacts/package/Walker.Cli.$RELEASE_VERSION.nupkg" --verify-tag --title "Walker $RELEASE_VERSION" --generate-notes "${release_args[@]}"

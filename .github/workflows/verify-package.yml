@@ -1,0 +1,91 @@
+name: Verify distributable package
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Package version (empty uses the project default)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and pack
+        shell: bash
+        run: |
+          version_args=()
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            version_args=("-p:Version=$RELEASE_VERSION")
+          fi
+          dotnet restore Walker.sln
+          dotnet build Walker.sln -c Release --no-restore -p:ContinuousIntegrationBuild=true "${version_args[@]}"
+          dotnet test Walker.sln -c Release --no-build --logger trx --results-directory artifacts/tests
+          python scripts/check_release.py --self-test
+          python -m unittest discover -s scripts/tests
+          dotnet pack src/Walker.Cli -c Release --no-build -p:ContinuousIntegrationBuild=true "${version_args[@]}" -o artifacts/package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: walker-package
+          path: artifacts/package/*.nupkg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/tests
+          if-no-files-found: ignore
+
+  install:
+    name: Install and verify (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: walker-package
+          path: artifacts/package
+      - name: Verify installed tool against .NET 10
+        run: python scripts/check_packed_tool.py --package artifacts/package --compiled-tests
+      - name: Verify installed tool against .NET 8 and agent workflows
+        run: python scripts/check_packed_tool.py --package artifacts/package --target-sdk 8.0.100 --target-framework net8.0 --isolate --focused-rerun --agent-workflows --evidence-directory artifacts/evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-evidence-${{ matrix.os }}
+          path: artifacts/evidence
+          if-no-files-found: ignore

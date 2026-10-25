@@ -68,9 +68,27 @@ The theme stays in the docs and the human-readable output. The APIs, the JSON fi
 
 ## 🎒 Survival kit (quick start)
 
-Install a stable .NET 10 SDK to build and run Walker. Target repositories still
+Install a stable .NET 10 SDK and Git to run Walker. Target repositories still
 need the SDKs and test runtimes selected by their own projects and `global.json`.
 See the [.NET 10 migration and feature review](docs/dotnet-10.md).
+
+Install the current preview from NuGet.org once the first release is published:
+
+```bash
+dotnet tool install --global Walker.Cli --prerelease
+walker --help
+```
+
+Run from the target Git repository:
+
+```bash
+walker verify --isolate --base HEAD~1 \
+  --project src/Payments/Payments.csproj \
+  --tests tests/Payments.Tests/Payments.Tests.csproj \
+  --timeout 60 --max-mutants 20 --format json
+```
+
+To build and run from source instead:
 
 ```bash
 dotnet build Walker.sln
@@ -146,18 +164,35 @@ walker verify --isolate --progress --base HEAD \
 
 ## 🏚️ Setting up camp (local/global tool)
 
-The CLI project is configured as a .NET tool with package ID `Walker.Cli`, title `Walker` and command `walker`. This metadata is provisional. It does not claim that these names are available on public feeds. No package is published; check naming and ownership before any publication.
+Walker is distributed as the `Walker.Cli` NuGet package, with command `walker`.
+For teams and CI, pin the version in a repository-local tool manifest:
 
 ```bash
-dotnet pack src/Walker.Cli -c Release -o artifacts
-# In the target repository:
-dotnet new tool-manifest # only if there isn't one already
-dotnet tool install Walker.Cli --add-source /path/to/verifier/artifacts --version 0.1.0
+# In the target repository; skip this if a manifest already exists:
+dotnet new tool-manifest
+dotnet tool install Walker.Cli --version 0.1.0-preview.1
+
+# Commit .config/dotnet-tools.json. In subsequent checkouts:
+dotnet tool restore
 dotnet tool run walker -- verify --isolate --project src/Payments/Payments.csproj \
   --tests tests/Payments.Tests/Payments.Tests.csproj --format json
 ```
 
-For a global install, use the same trusted local package source with `--global`. The command is then `walker verify`. Do not trust a stranger at the gate: an unrelated public package with the same name is not this implementation.
+For a global install, use `dotnet tool install --global Walker.Cli --prerelease`.
+The command is then `walker verify`. Upgrade deliberately with
+`dotnet tool update --global Walker.Cli --version <version>`.
+
+Packages are checked on Linux, macOS and Windows, against .NET 8 and .NET 10
+target test projects. Walker itself requires .NET 10.
+
+To try an unpublished build, download the `walker-package` artifact from a
+successful GitHub Actions run, unzip it, and install from that directory:
+
+```bash
+dotnet tool install Walker.Cli --add-source /path/to/package --version 0.1.0-preview.1
+```
+
+Maintainers: see [release setup and the tag-driven publication workflow](docs/releases.md).
 
 ---
 
