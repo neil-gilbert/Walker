@@ -6,21 +6,11 @@ bundled in the tool. The NuGet owner is `neil-gilbert`, matching CodePunk.
 
 ## One-time GitHub setup
 
-Sign into NuGet.org as `neil-gilbert` and create a
-[trusted-publishing policy](https://www.nuget.org/account/trustedpublishing):
-
-- Package owner: `neil-gilbert` (the same account as CodePunk).
-- Repository owner: `neil-gilbert` (the GitHub login, not a display name).
-- Repository: `Walker` (the name only, not the repository URL).
-- Workflow file: `release.yml` (the filename only).
-- Environment: `nuget`.
-- Scopes: create new packages and update package versions, for `Walker.Cli`.
-
-The publish job requests a short-lived NuGet credential with `NuGet/login@v1`
-and GitHub OIDC. No long-lived API-key secret is required. See
-[NuGet's trusted-publishing documentation](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing).
-Use a newly created policy within its initial activation window (normally seven
-days); successful publication activates it permanently.
+Add an Actions secret named `NUGET_API_KEY` to
+[neil-gilbert/Walker](https://github.com/neil-gilbert/Walker/settings/secrets/actions).
+Use a NuGet.org API key from the `neil-gilbert` account with permission to create
+and update `Walker.Cli`. A key scoped only to `CodePunk` will not work.
+Renew the key in the Actions secret when it expires.
 
 The release job uses the GitHub environment `nuget`. Any environment protection
 rules configured there apply before publication.
