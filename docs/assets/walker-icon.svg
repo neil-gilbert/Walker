@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="235 55 150 150" width="128" height="128" role="img" aria-labelledby="title">
+  <title id="title">Walker zombie mascot</title>
+  <circle cx="310" cy="130" r="71" fill="#f7d774" stroke="#111" stroke-width="5" />
+  <g transform="rotate(12 310 135)">
+    <path d="M270,95 C300,68 346,78 354,110 C362,142 352,172 326,182 C300,192 268,180 260,150 C254,126 258,106 270,95 Z" fill="#a9c08a" stroke="#111" stroke-width="7" />
+    <path d="M268,98 l-10,-16 M284,86 l-4,-18 M302,80 l4,-17 M320,82 l12,-12 M336,90 l16,-6" stroke="#111" stroke-width="5" stroke-linecap="round" />
+    <ellipse cx="300" cy="124" rx="15" ry="13" fill="#56703f" />
+    <ellipse cx="334" cy="120" rx="13" ry="12" fill="#56703f" />
+    <circle cx="300" cy="125" r="9" fill="#f4f1d8" stroke="#111" stroke-width="3" />
+    <circle cx="303" cy="127" r="3" fill="#111" />
+    <circle cx="334" cy="121" r="8" fill="#f4f1d8" stroke="#111" stroke-width="3" />
+    <circle cx="337" cy="123" r="3" fill="#111" />
+    <path d="M286,106 L312,112 M324,108 L346,104" stroke="#111" stroke-width="5" stroke-linecap="round" />
+    <path d="M318,132 l4,12 l-6,2" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" />
+    <path d="M296,156 L305,150 L312,158 L320,150 L328,157 L337,149 L340,163 C326,173 306,172 296,156 Z" fill="#3a1414" stroke="#111" stroke-width="4" stroke-linejoin="round" />
+    <path d="M305,152 l3,6 l3,-6 M320,152 l3,6 l3,-6" fill="#f4f1d8" stroke="none" />
+    <path d="M268,136 L288,150 M272,135 l-4,6 M278,140 l-4,6 M284,145 l-4,6" stroke="#111" stroke-width="3" stroke-linecap="round" />
+    <circle cx="346" cy="150" r="4" fill="#b3221a" />
+  </g>
+</svg>

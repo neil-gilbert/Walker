@@ -2,7 +2,9 @@
   <img src="docs/assets/walker-banner.svg" alt="Comic-book banner: a zombie shambles in front of a full moon toward the word WALKER. Caption: If it still walks, your tests aren't done." width="100%">
 </p>
 
-# 🧟 Walker
+# 🧟 Walker — C# mutation testing for .NET
+
+[Website & installation](https://neil-gilbert.github.io/Walker/) · [NuGet package](https://www.nuget.org/packages/Walker.Cli) · [Release notes](https://github.com/neil-gilbert/Walker/releases)
 
 > **If it still walks, your tests aren't done.**
 
@@ -12,7 +14,7 @@ You think you're safe.
 
 **You're not safe.**
 
-Walker is fast, diff-aware mutation verification for AI coding agents. It goes into the code your agent just changed, turns small pieces of it into something *slightly wrong*, and sends that back at your tests. If the tests take it down, good. If it gets back up and keeps walking, there's a hole in your fence.
+Walker is a .NET command-line tool for fast, diff-aware C# mutation testing, built for developers, AI coding agents and CI pipelines. It goes into the code your agent just changed, turns small pieces of it into something *slightly wrong*, and sends that back at your tests. If the tests take it down, good. If it gets back up and keeps walking, there's a hole in your fence.
 
 ---
 
@@ -72,7 +74,7 @@ Install a stable .NET 10 SDK and Git to run Walker. Target repositories still
 need the SDKs and test runtimes selected by their own projects and `global.json`.
 See the [.NET 10 migration and feature review](docs/dotnet-10.md).
 
-Install the current preview from NuGet.org once the first release is published:
+Install the current preview from NuGet.org:
 
 ```bash
 dotnet tool install --global Walker.Cli --prerelease
@@ -170,7 +172,7 @@ For teams and CI, pin the version in a repository-local tool manifest:
 ```bash
 # In the target repository; skip this if a manifest already exists:
 dotnet new tool-manifest
-dotnet tool install Walker.Cli --version 0.1.0-preview.2
+dotnet tool install Walker.Cli --version 0.1.0-preview.3
 
 # Commit .config/dotnet-tools.json. In subsequent checkouts:
 dotnet tool restore
@@ -189,7 +191,7 @@ To try an unpublished build, download the `walker-package` artifact from a
 successful GitHub Actions run, unzip it, and install from that directory:
 
 ```bash
-dotnet tool install Walker.Cli --add-source /path/to/package --version 0.1.0-preview.2
+dotnet tool install Walker.Cli --add-source /path/to/package --version 0.1.0-preview.3
 ```
 
 Maintainers: see [release setup and the tag-driven publication workflow](docs/releases.md).

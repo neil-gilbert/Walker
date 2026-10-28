@@ -439,3 +439,7 @@ stryker-output/
 StrykerOutput/
 __pycache__/
 *.py[cod]
+
+# Browser verification artifacts
+.playwright-cli/
+output/playwright/

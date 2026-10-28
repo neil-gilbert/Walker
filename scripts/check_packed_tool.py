@@ -52,6 +52,9 @@ def main():
             assert 'tools/net10.0/any/Walker.CoverageCollector.dll' in package.namelist(), 'Coverage collector missing from tool package'
             assert 'README.md' in package.namelist(), 'Package README missing'
             assert 'LICENSE' in package.namelist(), 'Package license missing'
+            assert 'icon.png' in package.namelist(), 'Package icon missing'
+            icon = package.read('icon.png')
+            assert icon.startswith(b'\x89PNG\r\n\x1a\n') and len(icon) <= 1024 * 1024, 'Package icon must be a PNG under 1 MB'
             assert not any(name.endswith('/Microsoft.Build.Framework.dll') for name in package.namelist()), 'MSBuild must supply its own framework assembly'
             specification = ET.fromstring(package.read(next(name for name in package.namelist() if name.endswith('.nuspec'))))
             identity = next(e.text for e in specification.iter() if e.tag.split('}')[-1] == 'id')

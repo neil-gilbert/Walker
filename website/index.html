@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Walker | C# mutation testing for .NET and AI coding agents</title>
+    <meta
+      name="description"
+      content="Find gaps in green tests with Walker, a .NET CLI for C# mutation testing focused on your Git diff. Install from NuGet. Run bounded checks with JSON reports."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#f3e6c8" />
+    <link rel="canonical" href="https://neil-gilbert.github.io/Walker/" />
+    <link rel="icon" type="image/png" href="assets/walker-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Walker" />
+    <meta
+      property="og:title"
+      content="Walker: if it still walks, your tests aren't done."
+    />
+    <meta
+      property="og:description"
+      content="C# mutation testing for the code you just changed. A .NET CLI for developers, AI coding agents and CI pipelines."
+    />
+    <meta property="og:url" content="https://neil-gilbert.github.io/Walker/" />
+    <meta
+      property="og:image"
+      content="https://neil-gilbert.github.io/Walker/assets/walker-social.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Walker zombie mascot and the words: If it still walks, your tests aren't done."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Walker | C# mutation testing for .NET"
+    />
+    <meta
+      name="twitter:description"
+      content="Your tests passed. Check what they missed with mutation testing focused on your Git diff."
+    />
+    <meta
+      name="twitter:image"
+      content="https://neil-gilbert.github.io/Walker/assets/walker-social.png"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": ["SoftwareApplication", "SoftwareSourceCode"],
+        "@id": "https://neil-gilbert.github.io/Walker/#software",
+        "name": "Walker",
+        "description": "A .NET CLI tool for fast, diff-aware C# mutation testing, with isolated execution, time and mutation budgets, and JSON reports for AI coding agents and CI pipelines.",
+        "url": "https://neil-gilbert.github.io/Walker/",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Linux, macOS, Windows",
+        "runtimePlatform": ".NET 10",
+        "programmingLanguage": "C#",
+        "codeRepository": "https://github.com/neil-gilbert/Walker",
+        "downloadUrl": "https://www.nuget.org/packages/Walker.Cli",
+        "releaseNotes": "https://github.com/neil-gilbert/Walker/releases",
+        "license": "https://opensource.org/license/mit",
+        "image": "https://neil-gilbert.github.io/Walker/assets/walker-social.png",
+        "author": {
+          "@type": "Person",
+          "name": "Neil Gilbert",
+          "url": "https://github.com/neil-gilbert"
+        },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="page">
+      <header>
+        <a class="brand" href="./" aria-label="Walker home"
+          ><img src="assets/walker-icon.png" alt="" width="42" height="42" />
+          WALKER</a
+        >
+        <nav aria-label="Main navigation">
+          <a href="#install">Install</a
+          ><a href="https://github.com/neil-gilbert/Walker#readme">Docs</a
+          ><a href="https://github.com/neil-gilbert/Walker">GitHub ↗</a>
+        </nav>
+      </header>
+      <main id="main">
+        <section class="hero" aria-labelledby="hero-title">
+          <p class="eyebrow">A small tool for the holes in your test suite.</p>
+          <h1 id="hero-title">
+            C# mutation testing.<br />Only the code <em>you changed.</em>
+          </h1>
+          <p class="intro">
+            Your tests passed. Walker checks whether they would notice if the
+            code were slightly wrong. Built for .NET developers, AI coding
+            agents and CI pipelines.
+          </p>
+          <img
+            class="banner"
+            src="assets/walker-banner.svg"
+            width="1200"
+            height="420"
+            alt="A zombie reaches toward the Walker title. If it still walks, your tests aren't done."
+          />
+          <p class="caption">
+            <span>01 / THE PROBLEM</span> Green tests can still leave the fence
+            unguarded.
+          </p>
+        </section>
+        <section class="story" aria-labelledby="story-title">
+          <div>
+            <p class="eyebrow">Test the tests.</p>
+            <h2 id="story-title">
+              Coverage says it ran.<br />Mutation testing asks<br /><em
+                >if anyone noticed.</em
+              >
+            </h2>
+          </div>
+          <div class="explanation">
+            <p>
+              Imagine a purchase rule changes from
+              <code>balance &gt;= price</code> to
+              <code>balance &gt; price</code>. If every test still passes,
+              nobody checked the exact-balance boundary.
+            </p>
+            <p>
+              Walker makes deliberate behavioural changes like this, runs your
+              tests, and reports the mutations that survive. You investigate the
+              missing assertion, equivalent behaviour or production defect.
+            </p>
+          </div>
+        </section>
+        <section class="method" aria-label="How Walker works">
+          <article>
+            <span class="number">01</span>
+            <h3>Read the diff.</h3>
+            <p>
+              Discover mutation candidates in changed C# production code, using
+              your Git diff as the scope.
+            </p>
+          </article>
+          <article>
+            <span class="number">02</span>
+            <h3>Raise the horde.</h3>
+            <p>
+              Run targeted mutations inside explicit time and mutation budgets.
+              Use a private worktree to preserve your checkout.
+            </p>
+          </article>
+          <article>
+            <span class="number">03</span>
+            <h3>Find the survivors.</h3>
+            <p>
+              Get a readable report or structured JSON. Every survivor is a
+              concrete behaviour to investigate.
+            </p>
+          </article>
+        </section>
+        <section
+          class="installation"
+          id="install"
+          aria-labelledby="install-title"
+        >
+          <div class="install-heading">
+            <div>
+              <p class="eyebrow">02 / YOUR SURVIVAL KIT</p>
+              <h2 id="install-title">
+                Install. Then challenge<br />that green tick.
+              </h2>
+            </div>
+            <a
+              class="package-link"
+              href="https://www.nuget.org/packages/Walker.Cli"
+              >Walker.Cli on NuGet ↗</a
+            >
+          </div>
+          <p>Install the current preview as a global .NET tool:</p>
+          <div class="terminal">
+            <div class="terminal-top">
+              <span>TERMINAL / GLOBAL INSTALL</span
+              ><button type="button" data-copy="install-command">
+                Copy command
+              </button>
+            </div>
+            <pre><code id="install-command">dotnet tool install --global Walker.Cli --prerelease</code></pre>
+          </div>
+          <p class="requirements">
+            <strong>Bring:</strong> the .NET 10 SDK, Git, and the SDKs and test
+            runtimes required by your target repository. Package checks run on
+            Linux, macOS and Windows, against .NET 8 and .NET 10 test projects.
+          </p>
+          <h3>Run from your target Git repository</h3>
+          <div class="terminal">
+            <div class="terminal-top">
+              <span>TERMINAL / VERIFY THE DIFF</span>
+            </div>
+            <pre><code>walker verify --isolate --base HEAD~1 \
+  --project src/Payments/Payments.csproj \
+  --tests tests/Payments.Tests/Payments.Tests.csproj \
+  --timeout 60 --max-mutants 20 --format json</code></pre>
+          </div>
+          <p>
+            Replace the project paths with yours and choose the Git base you
+            want to check. <code>--isolate</code> verifies a captured private
+            worktree and preserves your checkout.
+          </p>
+          <details>
+            <summary>Using Walker with a team or in CI?</summary>
+            <p>
+              Install a repository-local tool and commit the generated manifest.
+              It records the resolved version so everyone restores the same
+              tool.
+            </p>
+            <pre><code>dotnet new tool-manifest # skip if the repository already has one
+dotnet tool install Walker.Cli --prerelease
+# Commit .config/dotnet-tools.json; on subsequent checkouts:
+dotnet tool restore
+dotnet tool run walker -- verify --help</code></pre>
+          </details>
+        </section>
+        <section class="agent" aria-labelledby="agent-title">
+          <p class="eyebrow">03 / FOR THE AGENT AT THE KEYBOARD</p>
+          <h2 id="agent-title">
+            Keep the loop bounded.<br />Keep the evidence.
+          </h2>
+          <p>
+            Walker is designed to fit into coding loops. Set a timeout, cap the
+            selected mutations and consume one JSON report. A pass covers only
+            the selected expressions and test scope; compilation errors never
+            count as detected faults.
+          </p>
+          <dl>
+            <div>
+              <dt>0</dt>
+              <dd>Selected mutations detected</dd>
+            </div>
+            <div>
+              <dt>1</dt>
+              <dd>Surviving mutations</dd>
+            </div>
+            <div>
+              <dt>2</dt>
+              <dd>Infrastructure error</dd>
+            </div>
+            <div>
+              <dt>3</dt>
+              <dd>Incomplete evidence</dd>
+            </div>
+          </dl>
+          <div class="resource-links">
+            <a
+              href="https://github.com/neil-gilbert/Walker/tree/main/skills/walker-verification"
+              >Agent skill ↗</a
+            ><a
+              href="https://github.com/neil-gilbert/Walker/blob/main/docs/agent-protocol.md"
+              >JSON &amp; agent protocol ↗</a
+            ><a href="https://github.com/neil-gilbert/Walker#readme"
+              >Full CLI documentation ↗</a
+            >
+          </div>
+        </section>
+        <section class="faq" aria-labelledby="faq-title">
+          <h2 id="faq-title">Before you open the gate.</h2>
+          <details>
+            <summary>Is Walker a code coverage tool?</summary>
+            <p>
+              No. Coverage measures which code is executed. Walker tests whether
+              deliberate behavioural changes are detected. It focuses on your
+              Git diff, rather than producing a whole-repository mutation score.
+            </p>
+          </details>
+          <details>
+            <summary>Does my application need to target .NET 10?</summary>
+            <p>
+              Walker itself requires the .NET 10 SDK. Your target repository
+              uses its own SDKs and test runtimes. The distributed tool is
+              checked against .NET 8 and .NET 10 test projects.
+            </p>
+          </details>
+          <details>
+            <summary>Is it free and open source?</summary>
+            <p>
+              Yes. Walker is distributed under the
+              <a href="https://github.com/neil-gilbert/Walker/blob/main/LICENSE"
+                >MIT licence</a
+              >. This is a preview release; review the
+              <a href="https://github.com/neil-gilbert/Walker/releases"
+                >release notes</a
+              >
+              before upgrading.
+            </p>
+          </details>
+          <details>
+            <summary>How do I update or remove it?</summary>
+            <pre><code>dotnet tool update --global Walker.Cli --prerelease
+dotnet tool uninstall --global Walker.Cli</code></pre>
+            <p>
+              For a repository-local tool, omit <code>--global</code>. Commit
+              the updated manifest after upgrading.
+            </p>
+          </details>
+        </section>
+      </main>
+      <footer>
+        <p class="motto">
+          If it still walks,<br /><em>your tests aren't done.</em>
+        </p>
+        <div>
+          <p>
+            Walker · By
+            <a href="https://github.com/neil-gilbert">Neil Gilbert</a> · MIT
+            licence
+          </p>
+          <p>
+            <a href="https://github.com/neil-gilbert/Walker/issues"
+              >Report an issue</a
+            >
+            ·
+            <a href="https://github.com/neil-gilbert/Walker/releases"
+              >Release notes</a
+            >
+            · <a href="https://www.nuget.org/packages/Walker.Cli">NuGet</a>
+          </p>
+        </div>
+      </footer>
+    </div>
+    <p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>
+    <script>
+      document
+        .querySelector("[data-copy]")
+        .addEventListener("click", async function () {
+          try {
+            await navigator.clipboard.writeText(
+              document.getElementById(this.dataset.copy).textContent,
+            );
+            document.getElementById("copy-status").textContent =
+              "Installation command copied.";
+            this.textContent = "Copied!";
+            setTimeout(() => {
+              this.textContent = "Copy command";
+            }, 2000);
+          } catch {
+            document.getElementById("copy-status").textContent =
+              "Copy unavailable. Select the command text to copy it.";
+          }
+        });
+    </script>
+  </body>
+</html>

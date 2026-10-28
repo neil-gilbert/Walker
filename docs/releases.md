@@ -18,14 +18,15 @@ rules configured there apply before publication.
 ## Check a release without publishing
 
 Run **Release to NuGet** manually in the Actions tab, supplying a version such
-as `0.1.0-preview.2`. Manual runs only build, test and upload artifacts; they
+as `0.1.0-preview.3`. Manual runs only build, test and upload artifacts; they
 never publish. This also works from a development branch.
 
 The workflow:
 
 1. Validates the version.
 2. Builds and runs the solution and Python tests on Linux.
-3. Packs the CLI once, including its README, MIT licence and repository metadata.
+3. Packs the CLI once, including its installation README, icon, MIT licence,
+   search keywords, release-note link and repository metadata.
 4. Installs that exact package with an empty package cache on Linux, macOS and
    Windows, then verifies .NET 10 and .NET 8 target projects. Checks include
    baseline observation, compiled tests, isolated worktrees, focused reruns and
@@ -42,8 +43,8 @@ After the release commit has landed on `main`:
 ```sh
 git switch main
 git pull --ff-only
-git tag v0.1.0-preview.2
-git push origin v0.1.0-preview.2
+git tag v0.1.0-preview.3
+git push origin v0.1.0-preview.3
 ```
 
 The `v` prefix is removed to get the package version. Release versions must use
@@ -73,3 +74,21 @@ For teams and CI, commit a local tool manifest with an explicit version and use
 `dotnet tool restore` on subsequent checkouts. Run `dotnet tool update Walker.Cli
 --version <version>` when deliberately upgrading a local manifest, or add
 `--global` for a global installation. See the README for verification examples.
+
+## Project website and search discovery
+
+The public project page is https://neil-gilbert.github.io/Walker/. Its source is
+in `website/`, with shared artwork in `docs/assets/`. Changes to either are
+published by `.github/workflows/pages.yml` through GitHub Pages. Preview the
+same static output locally by copying those files into `artifacts/site/` as in
+the workflow, then serving that directory with `python3 -m http.server`.
+
+The page has a canonical URL, a description, social preview images, software
+structured data and `sitemap.xml`. Keep its installation guidance and links
+accurate. The global and local installation examples resolve the current
+preview, so they do not require an edit for every release.
+
+NuGet controls its own search-engine indexing policy. Its listing may serve a
+`noindex` tag for a new package even when installation and NuGet search work.
+The project website provides a separate indexable explanation and installation
+guide. Search engines still decide whether and when to index it.

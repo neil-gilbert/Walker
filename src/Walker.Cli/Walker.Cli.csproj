@@ -4,14 +4,17 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>walker</ToolCommandName>
     <PackageId>Walker.Cli</PackageId>
-    <Version>0.1.0-preview.2</Version>
-    <Title>Walker</Title>
+    <Version>0.1.0-preview.3</Version>
+    <Title>Walker: C# mutation testing for .NET</Title>
     <Authors>Neil Gilbert</Authors>
-    <Description>Fast, diff-aware mutation verification for AI coding agents.</Description>
-    <PackageTags>dotnet;mutation-testing;verification;ai-agents</PackageTags>
+    <Description>Walker is a .NET CLI tool for fast, diff-aware C# mutation testing. Check whether your tests detect changes to code in a Git diff, with isolated execution, time and mutation budgets, and JSON reports for AI coding agents and CI pipelines.</Description>
+    <PackageTags>csharp;dotnet;mutation-testing;mutation;testing;unit-testing;test-quality;cli;dotnet-tool;git;ci;ai-agents</PackageTags>
+    <Copyright>Copyright (c) 2026 Neil Gilbert</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/neil-gilbert/Walker</PackageProjectUrl>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReleaseNotes>Release notes: https://github.com/neil-gilbert/Walker/releases/tag/v$(Version)</PackageReleaseNotes>
+    <PackageProjectUrl>https://neil-gilbert.github.io/Walker/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/neil-gilbert/Walker</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -19,6 +22,7 @@
   <ItemGroup>
     <None Include="../../docs/nuget-readme.md" Pack="true" PackagePath="README.md" />
     <None Include="../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../../docs/assets/walker-icon.png" Pack="true" PackagePath="icon.png" />
     <ProjectReference Include="../Walker.Core/Walker.Core.csproj" />
     <ProjectReference Include="../Walker.Git/Walker.Git.csproj" />
     <ProjectReference Include="../Walker.Roslyn/Walker.Roslyn.csproj" />
