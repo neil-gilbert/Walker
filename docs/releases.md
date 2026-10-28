@@ -18,7 +18,7 @@ rules configured there apply before publication.
 ## Check a release without publishing
 
 Run **Release to NuGet** manually in the Actions tab, supplying a version such
-as `0.1.0-preview.1`. Manual runs only build, test and upload artifacts; they
+as `0.1.0-preview.2`. Manual runs only build, test and upload artifacts; they
 never publish. This also works from a development branch.
 
 The workflow:
@@ -42,8 +42,8 @@ After the release commit has landed on `main`:
 ```sh
 git switch main
 git pull --ff-only
-git tag v0.1.0-preview.1
-git push origin v0.1.0-preview.1
+git tag v0.1.0-preview.2
+git push origin v0.1.0-preview.2
 ```
 
 The `v` prefix is removed to get the package version. Release versions must use

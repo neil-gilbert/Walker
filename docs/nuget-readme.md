@@ -29,7 +29,7 @@ For reproducible team and CI setup, use a repository-local manifest:
 
 ```sh
 dotnet new tool-manifest
-dotnet tool install Walker.Cli --version 0.1.0-preview.1
+dotnet tool install Walker.Cli --version 0.1.0-preview.2
 ```
 
 Skip `dotnet new tool-manifest` if the repository already has a manifest. Commit

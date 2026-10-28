@@ -103,11 +103,18 @@ public sealed class MutationWorkerTests
             var results = await execution.WaitAsync(TimeSpan.FromSeconds(15));
             Assert.Equal(2, results.Count);
             Assert.All(results, r => Assert.Equal(MutationOutcome.TimedOut, r.Outcome));
-            Assert.All(children, pid =>
+            using var descendants = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            foreach (var pid in children)
             {
-                try { using var process = System.Diagnostics.Process.GetProcessById(pid); Assert.True(process.HasExited); }
+                try
+                {
+                    using var process = System.Diagnostics.Process.GetProcessById(pid);
+                    // Kill and the parent's WaitForExit are not a descendant-exit barrier.
+                    await process.WaitForExitAsync(descendants.Token);
+                    Assert.True(process.HasExited);
+                }
                 catch (ArgumentException) { }
-            });
+            }
         }
         else
         {

@@ -4,7 +4,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>walker</ToolCommandName>
     <PackageId>Walker.Cli</PackageId>
-    <Version>0.1.0-preview.1</Version>
+    <Version>0.1.0-preview.2</Version>
     <Title>Walker</Title>
     <Authors>Neil Gilbert</Authors>
     <Description>Fast, diff-aware mutation verification for AI coding agents.</Description>

@@ -38,7 +38,7 @@ public sealed class ProcessRunner : IProcessRunner
         }
         // Usually both streams have already reached EOF. Allow buffered output to finish,
         // then stop reading inherited handles that outlive the command.
-        drainCancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
+        drainCancellation.CancelAfter(TimeSpan.FromSeconds(1));
         var stdout = await output; var stderr = await error;
         cancellationToken.ThrowIfCancellationRequested();
         return new(process.ExitCode, stdout.Text, stderr.Text, timer.ElapsedMilliseconds, stdout.Truncated || stderr.Truncated);
@@ -47,7 +47,9 @@ public sealed class ProcessRunner : IProcessRunner
     {
         // Keep only the last `limit` characters in a ring buffer: no per-chunk copying of retained output.
         var buffer = new char[4096];
-        var ring = new char[limit];
+        // Large Git output limits should not allocate tens of megabytes for
+        // every short metadata command, especially during concurrent snapshots.
+        var ring = new char[Math.Min(limit, buffer.Length)];
         long written = 0;
         var truncated = false;
         try
@@ -55,6 +57,8 @@ public sealed class ProcessRunner : IProcessRunner
             int read;
             while ((read = await reader.ReadAsync(buffer.AsMemory(), token)) != 0)
             {
+                if (ring.Length < limit && written + read > ring.Length)
+                    Array.Resize(ref ring, (int)Math.Min(limit, Math.Max((long)ring.Length * 2, written + read)));
                 Append(ring, written, buffer.AsSpan(0, read));
                 written += read;
             }

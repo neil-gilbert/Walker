@@ -170,7 +170,7 @@ For teams and CI, pin the version in a repository-local tool manifest:
 ```bash
 # In the target repository; skip this if a manifest already exists:
 dotnet new tool-manifest
-dotnet tool install Walker.Cli --version 0.1.0-preview.1
+dotnet tool install Walker.Cli --version 0.1.0-preview.2
 
 # Commit .config/dotnet-tools.json. In subsequent checkouts:
 dotnet tool restore
@@ -189,7 +189,7 @@ To try an unpublished build, download the `walker-package` artifact from a
 successful GitHub Actions run, unzip it, and install from that directory:
 
 ```bash
-dotnet tool install Walker.Cli --add-source /path/to/package --version 0.1.0-preview.1
+dotnet tool install Walker.Cli --add-source /path/to/package --version 0.1.0-preview.2
 ```
 
 Maintainers: see [release setup and the tag-driven publication workflow](docs/releases.md).

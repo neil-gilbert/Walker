@@ -132,14 +132,17 @@ public sealed class RobustnessTests
         var selected = VerificationEngine.Select([.. dense, At("b", "B.cs", MutationOperator.ConditionalBoundary, 1), At("c", "A.cs", MutationOperator.Equality, 9)], 3);
         Assert.Equal(["a1", "b", "c"], selected.Select(m => m.Id));
     }
-    [Fact]
-    public async Task OutputLimitKeepsExactTail()
+    [Theory]
+    [InlineData(100)]
+    [InlineData(8193)]
+    [InlineData(200000)]
+    public async Task OutputLimitKeepsExactTail(int limit)
     {
         if (OperatingSystem.IsWindows()) return;
-        var result = await new ProcessRunner().RunAsync(new("bash", ["-c", "seq 1 20000"], Path.GetTempPath(), OutputLimit: 100), default);
-        Assert.True(result.OutputTruncated);
+        var result = await new ProcessRunner().RunAsync(new("bash", ["-c", "seq 1 20000"], Path.GetTempPath(), OutputLimit: limit), default);
         var expected = string.Concat(Enumerable.Range(1, 20000).Select(i => i + "\n"));
-        Assert.Equal(expected[^100..], result.StandardOutput);
+        Assert.Equal(expected.Length > limit, result.OutputTruncated);
+        Assert.Equal(expected[^Math.Min(expected.Length, limit)..], result.StandardOutput);
     }
     private static void WriteReport(ProcessRequest request, int failed)
     {
