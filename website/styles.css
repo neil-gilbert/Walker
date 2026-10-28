@@ -39,7 +39,6 @@ button {
 }
 code,
 pre,
-.eyebrow,
 .caption,
 .number,
 .terminal-top,
@@ -89,14 +88,6 @@ nav a {
 .hero {
   padding-top: 52px;
 }
-.eyebrow {
-  font-size: 11px;
-  letter-spacing: 1.7px;
-  font-weight: bold;
-  text-transform: uppercase;
-  margin: 0 0 20px;
-  color: var(--olive);
-}
 h1,
 h2,
 h3,
@@ -106,7 +97,7 @@ p {
 h1 {
   font-size: clamp(40px, 5.5vw, 70px);
   line-height: 1.04;
-  letter-spacing: -2.7px;
+  letter-spacing: -0.025em;
   margin-bottom: 24px;
   font-weight: normal;
   max-width: 1000px;
@@ -127,16 +118,11 @@ em {
   filter: drop-shadow(4px 5px 0 #b8a686);
 }
 .caption {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 10px;
+  display: block;
+  font-size: 12px;
   letter-spacing: 0.3px;
   margin: 16px 0 0;
   color: var(--olive);
-}
-.caption span {
-  white-space: nowrap;
 }
 .story {
   display: grid;
@@ -151,7 +137,7 @@ em {
   font-weight: normal;
 }
 .explanation {
-  padding-top: 32px;
+  padding-top: 0;
 }
 .explanation p:last-child {
   margin-bottom: 0;
@@ -214,7 +200,7 @@ p code {
   margin: 0;
 }
 .package-link {
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: 6px;
   white-space: nowrap;
 }
@@ -232,8 +218,8 @@ p code {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  font-size: 10px;
-  letter-spacing: 1px;
+  font-size: 12px;
+  letter-spacing: 0.3px;
   color: var(--yellow);
 }
 .terminal button {
@@ -242,7 +228,7 @@ p code {
   border: 0;
   padding: 4px 0;
   font:
-    11px/1.4 "SFMono-Regular",
+    12px/1.4 "SFMono-Regular",
     Consolas,
     monospace;
   letter-spacing: 0;
@@ -302,7 +288,7 @@ details pre {
   padding: 64px 0;
   border-bottom: 2px solid var(--ink);
 }
-.agent > p:not(.eyebrow) {
+.agent > p {
   max-width: 770px;
   margin: 24px 0;
 }
@@ -404,19 +390,14 @@ footer div p {
   }
   nav {
     gap: 15px;
-    font-size: 11px;
+    font-size: 12px;
   }
   .hero {
     padding-top: 35px;
   }
-  .eyebrow {
-    font-size: 9px;
-    letter-spacing: 1px;
-    margin-bottom: 17px;
-  }
   h1 {
     font-size: 42px;
-    letter-spacing: -1.8px;
+    letter-spacing: -0.025em;
     line-height: 1.08;
   }
   .intro {
@@ -425,12 +406,8 @@ footer div p {
   }
   .caption {
     display: block;
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.7;
-  }
-  .caption span {
-    display: block;
-    margin-bottom: 4px;
   }
   .story {
     grid-template-columns: 1fr;
@@ -478,16 +455,16 @@ footer div p {
   }
   .terminal-top {
     padding: 9px 12px;
-    font-size: 8px;
-    letter-spacing: 0.5px;
+    font-size: 12px;
+    letter-spacing: 0.3px;
   }
   .terminal button {
     min-height: 44px;
     min-width: 90px;
-    font-size: 10px;
+    font-size: 12px;
   }
   pre {
-    font-size: 11px;
+    font-size: 12px;
     padding: 16px;
     line-height: 1.9;
   }
@@ -533,8 +510,15 @@ footer div p {
   h1 {
     font-size: 36px;
   }
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
   nav {
+    width: 100%;
+    justify-content: space-between;
     gap: 10px;
-    font-size: 10px;
+    font-size: 12px;
   }
 }

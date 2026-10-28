@@ -11,6 +11,15 @@
         ],
         "createdAt": "2026-10-28T11:50:17.980Z",
         "reason": "Agent verified rendered text using computed foreground and inherited background colors in Playwright: minimum contrast 6.0038:1, above WCAG AA 4.5:1. No low-contrast text findings; external stylesheet defines the palette."
+      },
+      {
+        "rule": "em-dash-overuse",
+        "value": "*",
+        "files": [
+          "website/index.html"
+        ],
+        "createdAt": "2026-10-28T12:10:06.570Z",
+        "reason": "Agent verified there are no prose em dashes in this file; this advisory counts required double-hyphen .NET CLI flags in literal installation and verification examples. Preserve valid command syntax."
       }
     ]
   }
